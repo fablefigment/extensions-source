@@ -223,7 +223,6 @@ abstract class LunarAnime : KeiSource() {
         val images = crypto.unpack(sessionData, seeds, minted.nonce)
             .parseAs<LunarPageListDecrypted>().data.images
 
-
         return images.mapIndexed { index, imageUrl ->
             Page(index, chapter.url, imageUrl)
         }
