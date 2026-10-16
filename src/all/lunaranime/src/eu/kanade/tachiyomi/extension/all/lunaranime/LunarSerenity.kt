@@ -25,6 +25,9 @@ class LunarSerenity(
     @Volatile
     private var keyPair: KeyPair = generateKeyPair()
 
+    @Volatile
+    private var dpopNonce: String? = null
+
     private fun generateKeyPair(): KeyPair = KeyPairGenerator.getInstance("EC").apply {
         initialize(ECGenParameterSpec("secp256r1"))
     }.generateKeyPair()
@@ -32,6 +35,7 @@ class LunarSerenity(
     @Synchronized
     fun reset() {
         keyPair = generateKeyPair()
+        dpopNonce = null
     }
 
     private val publicPoint get() = (keyPair.public as ECPublicKey).w
@@ -50,9 +54,13 @@ class LunarSerenity(
             return sha256(jwk.toByteArray()).base64Url()
         }
 
-    fun proof(method: String, url: HttpUrl): String {
+    fun proof(method: String, url: HttpUrl, nonce: String? = null): String {
         val header = """{"alg":"ES256","typ":"dpop+jwt","jwk":{"kty":"EC","crv":"P-256","x":"$coordinateX","y":"$coordinateY"}}"""
-        val payload = """{"htu":"${url.scheme}://${url.host}${url.encodedPath}","htm":${'"'}${method.uppercase()}","iat":${System.currentTimeMillis() / 1000},"jti":"${UUID.randomUUID()}"}"""
+        val payload = buildString {
+            append("""{"htu":"${url.scheme}://${url.host}${url.encodedPath}","htm":"${method.uppercase()}","iat":${System.currentTimeMillis() / 1000},"jti":"${UUID.randomUUID()}"""")
+            if (nonce != null) append(""","nonce":"$nonce"""")
+            append("}")
+        }
 
         val signingInput = "${header.toByteArray().base64Url()}.${payload.toByteArray().base64Url()}"
         val signature = Signature.getInstance("SHA256withECDSA").run {
@@ -72,6 +80,15 @@ class LunarSerenity(
 
         val response = chain.proceed(request.withProof())
 
+        if (response.code == 401 && response.peekBody(1024).string().contains("dpop_nonce_required")) {
+            val xRid = response.header("x-rid")
+            if (xRid != null) {
+                response.close()
+                dpopNonce = sha256((NONCE_SALT + xRid).toByteArray()).base64Url()
+                return@Interceptor chain.proceed(request.withProof())
+            }
+        }
+
         // The site mints a fresh key pair whenever the server rejects the current one.
         if (response.code == 403 && response.peekBody(1024).string().contains("validate", ignoreCase = true)) {
             response.close()
@@ -82,7 +99,8 @@ class LunarSerenity(
         response
     }
 
-    private fun okhttp3.Request.withProof(): okhttp3.Request = newBuilder().header(PROOF_HEADER, proof(method, url)).build()
+    private fun okhttp3.Request.withProof(): okhttp3.Request =
+        newBuilder().header(PROOF_HEADER, proof(method, url, dpopNonce)).build()
 
     private fun sha256(bytes: ByteArray): ByteArray = MessageDigest.getInstance("SHA-256").digest(bytes)
 
@@ -128,7 +146,8 @@ class LunarSerenity(
     }
 
     companion object {
-        private const val PROOF_HEADER = "cant-catch-this-monkey"
+        private const val PROOF_HEADER = "DPoP"
+        private const val NONCE_SALT = "lx7-n1-q9Z21"
         private const val COORDINATE_SIZE = 32
     }
 }
