@@ -17,6 +17,7 @@ import keiyoushi.utils.firstInstance
 import keiyoushi.utils.firstInstanceOrNull
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonElement
+import keiyoushi.utils.toJsonRequestBody
 import keiyoushi.utils.xor
 import kotlinx.serialization.json.JsonElement
 import okhttp3.Headers
@@ -26,6 +27,7 @@ import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
+import java.util.concurrent.ConcurrentHashMap
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 import kotlin.random.Random
@@ -121,8 +123,9 @@ abstract class CatharsisWorld : KeiSource() {
         try {
             val dto = client.get(url).parseAs<PagesDto>()
             sessionToken = dto.chapterSessionToken
+            currentPages = dto.paginas
             Log.d(TAG, "getPageList: ok, pages=${dto.paginas.size}, sessionToken=${sessionToken != null}")
-            return dto.paginas.mapIndexed { i, page -> Page(i, imageUrl = "$apiUrl/mangas/pages/${page.pageId}") }
+            return dto.paginas.mapIndexed { i, _ -> Page(i) }
         } catch (e: HttpException) {
             Log.e(TAG, "getPageList: failed for $url: ${e.message}", e)
             if (e.code == 401) {
@@ -136,14 +139,30 @@ abstract class CatharsisWorld : KeiSource() {
     }
 
     private var sessionToken: String? = null
+    private var currentPages: List<PageDto> = emptyList()
+    private val xorKeys = ConcurrentHashMap<String, Int>()
 
     override fun imageRequest(page: Page): Request {
+        val pageDto = currentPages.getOrNull(page.index)
+            ?: throw IllegalStateException("Page ${page.index} not found")
+        val token = sessionToken
+            ?: throw IllegalStateException("Missing chapter session token")
+        val ticketRequest = Request.Builder()
+            .url("$apiUrl/mangas/chapters/${pageDto.id}/page-ticket")
+            .post(PageTicketRequest(pageDto.index, token).toJsonRequestBody())
+            .headers(headers)
+            .build()
+        Log.d(TAG, "imageRequest: ticket for chapter=${pageDto.id} pageIndex=${pageDto.index}")
+        val ticket = client.newCall(ticketRequest).execute().use { response ->
+            if (!response.isSuccessful) throw HttpException(response.code)
+            response.parseAs<PageTicketResponse>()
+        }
+        xorKeys[ticket.signedToken] = ticket.xorByte
+        Log.d(TAG, "imageRequest: ticket ok, xorByte=${ticket.xorByte}")
         val reqHeaders = headers.newBuilder()
             .add("X-Catharsis-Reader", "1")
-            .apply { sessionToken?.let { add("Authorization", "Bearer $it") } }
             .build()
-        Log.d(TAG, "imageRequest: url=${page.imageUrl}, bearer=${sessionToken != null}, defaultHeaders=[${headers.names().joinToString()}]")
-        return GET(page.imageUrl!!, reqHeaders)
+        return GET("$apiUrl/mangas/pages/${ticket.signedToken}", reqHeaders)
     }
 
     // Page images are XOR-ed with a single-byte key unless they already start with an image signature
@@ -177,21 +196,24 @@ abstract class CatharsisWorld : KeiSource() {
     }
 
     private fun pageInterceptor(chain: Interceptor.Chain): Response {
-        val response = chain.proceed(chain.request())
-        if (chain.request().url.encodedPath.startsWith("/api/mangas/pages/")) {
-            Log.d(TAG, "pageInterceptor: ${chain.request().method} ${chain.request().url.encodedPath} -> ${response.code}")
-        }
-        if (!chain.request().url.encodedPath.startsWith("/api/mangas/pages/") || !response.isSuccessful) return response
+        val request = chain.request()
+        val path = request.url.encodedPath
+        if (!path.startsWith("/api/mangas/pages/")) return chain.proceed(request)
+        val response = chain.proceed(request)
+        Log.d(TAG, "pageInterceptor: ${request.method} $path -> ${response.code}")
+        if (!response.isSuccessful) return response
+
+        val xorByte = xorKeys[request.url.pathSegments.lastOrNull()] ?: return response
 
         val body = response.body
         val source = body.source()
         if (!source.request(HEADER_SIZE.toLong())) return response
         if (source.buffer.size < HEADER_SIZE) return response
         val header = source.buffer.snapshot(HEADER_SIZE).toByteArray()
-        val decoded = ByteArray(HEADER_SIZE) { (header[it].toInt() xor XOR_KEY).toByte() }
+        val decoded = ByteArray(HEADER_SIZE) { (header[it].toInt() xor xorByte).toByte() }
         if (isImage(header) || !isImage(decoded)) return response
 
-        return response.xor(XOR_KEY)
+        return response.xor(xorByte)
     }
 
     private fun isImage(bytes: ByteArray): Boolean {
@@ -207,7 +229,6 @@ abstract class CatharsisWorld : KeiSource() {
         private const val TAG = "CatharsisWorld"
         private const val PAGE_SIZE = 24
         private const val HMAC_KEY = "4$^£]C8j%La3"
-        private const val XOR_KEY = 0x43
         private const val HEADER_SIZE = 12
     }
 }
