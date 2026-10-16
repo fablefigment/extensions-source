@@ -108,3 +108,10 @@ class PageTicketResponse(
     private val scrambleKey: String? = null,
     val xorByte: Int,
 )
+
+@Serializable
+class ChapterTokenPayload(
+    val cid: Int,
+    private val ip: String? = null,
+    private val exp: Long? = null,
+)
