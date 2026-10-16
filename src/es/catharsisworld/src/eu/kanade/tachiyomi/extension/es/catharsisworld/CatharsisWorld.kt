@@ -120,25 +120,8 @@ abstract class CatharsisWorld : KeiSource() {
     override suspend fun getPageList(chapter: SChapter): List<Page> {
         val url = "$apiUrl/mangas/${chapter.url}"
         Log.d(TAG, "getPageList: GET $url")
-        try {
-            val dto = client.get(url).parseAs<PagesDto>()
-            val token = dto.chapterSessionToken
-                ?: throw IllegalStateException("Missing chapter session token")
-            Log.d(TAG, "getPageList: ok, pages=${dto.paginas.size}")
-            return dto.paginas.mapIndexed { i, pageDto ->
-                val ticketRequest = Request.Builder()
-                    .url("$apiUrl/mangas/chapters/${pageDto.id}/page-ticket")
-                    .post(PageTicketRequest(pageDto.index, token).toJsonRequestBody())
-                    .headers(headers)
-                    .build()
-                val ticket = client.newCall(ticketRequest).execute().use { response ->
-                    if (!response.isSuccessful) throw HttpException(response.code)
-                    response.parseAs<PageTicketResponse>()
-                }
-                xorKeys[ticket.signedToken] = ticket.xorByte
-                Log.d(TAG, "getPageList: ticket $i ok, xorByte=${ticket.xorByte}")
-                Page(i, imageUrl = "$apiUrl/mangas/pages/${ticket.signedToken}")
-            }
+        val dto = try {
+            client.get(url).parseAs<PagesDto>()
         } catch (e: HttpException) {
             Log.e(TAG, "getPageList: failed for $url: ${e.message}", e)
             if (e.code == 401) {
@@ -148,6 +131,23 @@ abstract class CatharsisWorld : KeiSource() {
         } catch (e: Exception) {
             Log.e(TAG, "getPageList: failed for $url: ${e.message}", e)
             throw e
+        }
+        val token = dto.chapterSessionToken
+            ?: throw IllegalStateException("Missing chapter session token")
+        Log.d(TAG, "getPageList: ok, pages=${dto.paginas.size}")
+        return dto.paginas.mapIndexed { i, pageDto ->
+            val ticketRequest = Request.Builder()
+                .url("$apiUrl/mangas/chapters/${pageDto.id}/page-ticket")
+                .post(PageTicketRequest(pageDto.index, token).toJsonRequestBody())
+                .headers(headers)
+                .build()
+            val ticket = client.newCall(ticketRequest).execute().use { response ->
+                if (!response.isSuccessful) throw HttpException(response.code)
+                response.parseAs<PageTicketResponse>()
+            }
+            xorKeys[ticket.signedToken] = ticket.xorByte
+            Log.d(TAG, "getPageList: ticket $i ok, xorByte=${ticket.xorByte}")
+            Page(i, imageUrl = "$apiUrl/mangas/pages/${ticket.signedToken}")
         }
     }
 
