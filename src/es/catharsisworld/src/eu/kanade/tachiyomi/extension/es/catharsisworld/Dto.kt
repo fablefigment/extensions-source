@@ -25,6 +25,7 @@ class MangaDto(
     @SerialName("nombre_alt_2") private val nombreAlt2: String? = null,
     @SerialName("fk_generos") private val generos: List<MangaGenreDto> = emptyList(),
     val capitulos: List<ChapterDto> = emptyList(),
+    @SerialName("requires_login") val requiresLogin: Boolean = false,
 ) {
     fun toSManga(baseUrl: String) = SManga.create().apply {
         url = id.toString()
