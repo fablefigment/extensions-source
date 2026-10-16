@@ -34,6 +34,7 @@ abstract class LunarAnime : KeiSource() {
     private val cdnurlHost by lazy { CDN_URL.toHttpUrl().host }
 
     private val serenity by lazy { LunarSerenity(API_URL) }
+    private val turnstileSolver by lazy { LunarTurnstileSolver(baseUrl) }
 
     override fun OkHttpClient.Builder.configureClient() = this
         .addInterceptor(serenity.interceptor())
@@ -45,6 +46,13 @@ abstract class LunarAnime : KeiSource() {
                     .header("Referer", "$baseUrl/")
                     .build()
                 chain.proceed(newRequest)
+            } else if (request.url.encodedPath.contains("/api/manga/r/")) {
+                val builder = request.newBuilder()
+                turnstileSolver.getToken()?.let { token ->
+                    builder.header("Catch-Me-If-You-Can-Monkey", token)
+                        .header("Which-Monkey", "turnstile")
+                }
+                chain.proceed(builder.build())
             } else {
                 chain.proceed(request)
             }
