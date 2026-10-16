@@ -141,7 +141,7 @@ abstract class OrckuMangas : KeiSource() {
 
         val document = client.get(base).asJsoup()
         val pages = document.select("nav[aria-label=Páginas de capítulos] a[href*=page=]").mapNotNull {
-            it.attr("abs:href").toHttpUrlOrNull()?.queryParameter("page")?.toIntOrNull()
+            runCatching { it.attr("abs:href").toHttpUrl().queryParameter("page")?.toIntOrNull() }.getOrNull()
         }.maxOrNull() ?: 1
 
         parseChapters(document) + (2..pages).map { page ->
