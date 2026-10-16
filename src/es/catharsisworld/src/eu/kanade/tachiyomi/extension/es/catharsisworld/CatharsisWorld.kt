@@ -2,6 +2,7 @@ package eu.kanade.tachiyomi.extension.es.catharsisworld
 
 import android.util.Log
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.HttpException
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.Page
@@ -122,6 +123,12 @@ abstract class CatharsisWorld : KeiSource() {
             sessionToken = dto.chapterSessionToken
             Log.d(TAG, "getPageList: ok, pages=${dto.paginas.size}, sessionToken=${sessionToken != null}")
             return dto.paginas.mapIndexed { i, page -> Page(i, imageUrl = "$apiUrl/mangas/pages/${page.pageId}") }
+        } catch (e: HttpException) {
+            Log.e(TAG, "getPageList: failed for $url: ${e.message}", e)
+            if (e.code == 401) {
+                throw Exception("This chapter requires login on the website")
+            }
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "getPageList: failed for $url: ${e.message}", e)
             throw e
