@@ -2,6 +2,7 @@ package eu.kanade.tachiyomi.extension.all.lunaranime
 
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -26,12 +27,15 @@ class LunarTurnstileSolver(
     var harvestUrl: String? = null
 
     fun getToken(): String? {
+        Log.d(TAG, "getToken called, harvestUrl=$harvestUrl")
         cachedToken?.let {
             if (System.currentTimeMillis() - tokenTime < TOKEN_TTL_MS) {
+                Log.d(TAG, "returning cached token")
                 return it
             }
         }
         val token = solve()
+        Log.d(TAG, "solve returned: ${token?.take(20)}")
         if (token != null) {
             cachedToken = token
             tokenTime = System.currentTimeMillis()
@@ -65,9 +69,11 @@ class LunarTurnstileSolver(
                     ): android.webkit.WebResourceResponse? {
                         val reqUrl = request.url.toString()
                         if (reqUrl.contains("/api/manga/r/")) {
+                            Log.d(TAG, "intercepted API request: ${reqUrl.take(80)}")
                             val token = request.requestHeaders.entries.firstOrNull {
                                 it.key.equals("catch-me-if-you-can-monkey", ignoreCase = true)
                             }?.value
+                            Log.d(TAG, "token present: ${!token.isNullOrEmpty()}")
                             if (!token.isNullOrEmpty() && result == null) {
                                 result = token
                                 latch.countDown()
@@ -75,8 +81,19 @@ class LunarTurnstileSolver(
                         }
                         return null
                     }
+
+                    override fun onReceivedError(
+                        view: WebView,
+                        request: WebResourceRequest,
+                        error: android.webkit.WebResourceError,
+                    ) {
+                        if (request.isForMainFrame) {
+                            Log.d(TAG, "page error: ${error.errorCode} ${error.description}")
+                        }
+                    }
                 }
 
+                Log.d(TAG, "loading URL: $url")
                 webView.loadUrl(url)
 
                 destroyWv = Runnable {
@@ -96,6 +113,7 @@ class LunarTurnstileSolver(
     }
 
     companion object {
+        private const val TAG = "LunarTurnstile"
         private const val DESTROY_TIMEOUT_MS = 300000L
         private const val TOKEN_TTL_MS = 210000L
         private const val SOLVE_TIMEOUT_MS = 30000L
