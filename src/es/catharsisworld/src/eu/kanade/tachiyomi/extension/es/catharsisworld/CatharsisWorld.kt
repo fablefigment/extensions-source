@@ -122,10 +122,23 @@ abstract class CatharsisWorld : KeiSource() {
         Log.d(TAG, "getPageList: GET $url")
         try {
             val dto = client.get(url).parseAs<PagesDto>()
-            sessionToken = dto.chapterSessionToken
-            currentPages = dto.paginas
-            Log.d(TAG, "getPageList: ok, pages=${dto.paginas.size}, sessionToken=${sessionToken != null}")
-            return dto.paginas.mapIndexed { i, _ -> Page(i) }
+            val token = dto.chapterSessionToken
+                ?: throw IllegalStateException("Missing chapter session token")
+            Log.d(TAG, "getPageList: ok, pages=${dto.paginas.size}")
+            return dto.paginas.mapIndexed { i, pageDto ->
+                val ticketRequest = Request.Builder()
+                    .url("$apiUrl/mangas/chapters/${pageDto.id}/page-ticket")
+                    .post(PageTicketRequest(pageDto.index, token).toJsonRequestBody())
+                    .headers(headers)
+                    .build()
+                val ticket = client.newCall(ticketRequest).execute().use { response ->
+                    if (!response.isSuccessful) throw HttpException(response.code)
+                    response.parseAs<PageTicketResponse>()
+                }
+                xorKeys[ticket.signedToken] = ticket.xorByte
+                Log.d(TAG, "getPageList: ticket $i ok, xorByte=${ticket.xorByte}")
+                Page(i, imageUrl = "$apiUrl/mangas/pages/${ticket.signedToken}")
+            }
         } catch (e: HttpException) {
             Log.e(TAG, "getPageList: failed for $url: ${e.message}", e)
             if (e.code == 401) {
@@ -138,31 +151,13 @@ abstract class CatharsisWorld : KeiSource() {
         }
     }
 
-    private var sessionToken: String? = null
-    private var currentPages: List<PageDto> = emptyList()
     private val xorKeys = ConcurrentHashMap<String, Int>()
 
     override fun imageRequest(page: Page): Request {
-        val pageDto = currentPages.getOrNull(page.index)
-            ?: throw IllegalStateException("Page ${page.index} not found")
-        val token = sessionToken
-            ?: throw IllegalStateException("Missing chapter session token")
-        val ticketRequest = Request.Builder()
-            .url("$apiUrl/mangas/chapters/${pageDto.id}/page-ticket")
-            .post(PageTicketRequest(pageDto.index, token).toJsonRequestBody())
-            .headers(headers)
-            .build()
-        Log.d(TAG, "imageRequest: ticket for chapter=${pageDto.id} pageIndex=${pageDto.index}")
-        val ticket = client.newCall(ticketRequest).execute().use { response ->
-            if (!response.isSuccessful) throw HttpException(response.code)
-            response.parseAs<PageTicketResponse>()
-        }
-        xorKeys[ticket.signedToken] = ticket.xorByte
-        Log.d(TAG, "imageRequest: ticket ok, xorByte=${ticket.xorByte}")
         val reqHeaders = headers.newBuilder()
             .add("X-Catharsis-Reader", "1")
             .build()
-        return GET("$apiUrl/mangas/pages/${ticket.signedToken}", reqHeaders)
+        return GET(page.imageUrl!!, reqHeaders)
     }
 
     // Page images are XOR-ed with a single-byte key unless they already start with an image signature
