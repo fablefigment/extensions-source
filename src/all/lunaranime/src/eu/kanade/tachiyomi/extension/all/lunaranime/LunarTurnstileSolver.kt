@@ -6,6 +6,7 @@ import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import keiyoushi.utils.applicationContext
+import java.io.IOException
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
@@ -21,6 +22,9 @@ class LunarTurnstileSolver(
 
     @Volatile
     private var tokenTime: Long = 0L
+
+    @Volatile
+    private var lastFailTime: Long = 0L
 
     private val globalWebView: WebView
         get() {
@@ -45,12 +49,15 @@ class LunarTurnstileSolver(
         cachedToken?.let {
             if (System.currentTimeMillis() - tokenTime < TOKEN_TTL_MS) return it
         }
-        return solve().also {
-            if (it != null) {
-                cachedToken = it
-                tokenTime = System.currentTimeMillis()
-            }
+        if (System.currentTimeMillis() - lastFailTime < NULL_CACHE_MS) return null
+        val token = solve()
+        if (token != null) {
+            cachedToken = token
+            tokenTime = System.currentTimeMillis()
+            return token
         }
+        lastFailTime = System.currentTimeMillis()
+        throw IOException("Solve the captcha in WebView and retry")
     }
 
     @Synchronized
@@ -126,6 +133,7 @@ class LunarTurnstileSolver(
         private const val HTML = "<html><body><div id=\"$TS_CONTAINER\"></div></body></html>"
         private const val DESTROY_TIMEOUT_MS = 300000L
         private const val TOKEN_TTL_MS = 210000L
-        private const val SOLVE_TIMEOUT_MS = 10000L
+        private const val NULL_CACHE_MS = 60000L
+        private const val SOLVE_TIMEOUT_MS = 4000L
     }
 }
