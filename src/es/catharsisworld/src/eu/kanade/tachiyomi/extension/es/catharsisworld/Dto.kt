@@ -105,7 +105,7 @@ class PageTicketRequest(
 class PageTicketResponse(
     val signedToken: String,
     private val pageId: String,
-    private val scrambleKey: String? = null,
+    val scrambleKey: String? = null,
     val xorByte: Int,
 )
 
