@@ -2,7 +2,6 @@ package eu.kanade.tachiyomi.extension.all.lunaranime
 
 import android.os.Handler
 import android.os.Looper
-import android.util.Log
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -49,24 +48,19 @@ class LunarTurnstileSolver(
     fun getToken(): String? {
         cachedToken?.let {
             if (System.currentTimeMillis() - tokenTime < TOKEN_TTL_MS) {
-                Log.d(TAG, "getToken: returning cached token")
                 return it
             }
         }
         if (System.currentTimeMillis() - lastFailTime < NULL_CACHE_MS) {
-            Log.d(TAG, "getToken: solve cooldown active, returning null")
             return null
         }
-        Log.d(TAG, "getToken: starting new solve")
         val token = solve()
         if (token != null) {
             cachedToken = token
             tokenTime = System.currentTimeMillis()
-            Log.d(TAG, "getToken: solve succeeded, token obtained")
             return token
         }
         lastFailTime = System.currentTimeMillis()
-        Log.e(TAG, "getToken: solve failed, throwing IOException")
         throw IOException("Solve the captcha in WebView and retry")
     }
 
@@ -98,7 +92,6 @@ class LunarTurnstileSolver(
 
                 webView.loadDataWithBaseURL(baseUrl, HTML, "text/html", "utf-8", null)
             } catch (e: Throwable) {
-                Log.e(TAG, "solve: WebView setup failed", e)
                 latch.countDown()
             }
         }
@@ -137,7 +130,6 @@ class LunarTurnstileSolver(
     """.trimIndent()
 
     companion object {
-        private const val TAG = "LunarManga"
         private const val BRIDGE_NAME = "LunarTurnstileBridge"
         private const val TS_CALLBACK = "lunarTsReady"
         private const val TS_CONTAINER = "lunar-ts-container"
