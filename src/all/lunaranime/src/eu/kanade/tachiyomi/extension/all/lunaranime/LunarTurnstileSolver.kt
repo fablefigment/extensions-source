@@ -2,13 +2,10 @@ package eu.kanade.tachiyomi.extension.all.lunaranime
 
 import android.os.Handler
 import android.os.Looper
-import android.webkit.JavascriptInterface
 import android.webkit.WebResourceRequest
-import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import keiyoushi.utils.applicationContext
-import java.io.ByteArrayInputStream
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
@@ -61,46 +58,22 @@ class LunarTurnstileSolver(
                 }
                 val webView = cachedWv!!
 
-                webView.removeJavascriptInterface(BRIDGE_NAME)
-                webView.addJavascriptInterface(
-                    object {
-                        @JavascriptInterface
-                        fun onToken(token: String) {
-                            if (result == null) {
-                                result = token.ifEmpty { null }
-                                latch.countDown()
-                            }
-                        }
-                    },
-                    BRIDGE_NAME,
-                )
-
                 webView.webViewClient = object : WebViewClient() {
                     override fun shouldInterceptRequest(
                         view: WebView,
                         request: WebResourceRequest,
-                    ): WebResourceResponse? {
-                        if (!request.isForMainFrame) return null
-                        return try {
-                            val conn = java.net.URL(request.url.toString()).openConnection()
-                            request.requestHeaders.forEach { (k, v) ->
-                                if (!k.equals("X-Requested-With", ignoreCase = true)) {
-                                    conn.setRequestProperty(k, v)
-                                }
+                    ): android.webkit.WebResourceResponse? {
+                        val reqUrl = request.url.toString()
+                        if (reqUrl.contains("/api/manga/r/")) {
+                            val token = request.requestHeaders.entries.firstOrNull {
+                                it.key.equals("catch-me-if-you-can-monkey", ignoreCase = true)
+                            }?.value
+                            if (!token.isNullOrEmpty() && result == null) {
+                                result = token
+                                latch.countDown()
                             }
-                            conn.connect()
-                            val contentType = conn.contentType ?: "text/html"
-                            if (!contentType.contains("text/html")) return null
-                            val html = conn.inputStream.bufferedReader().readText()
-                            val injected = html.injectHook()
-                            WebResourceResponse(
-                                "text/html",
-                                "utf-8",
-                                ByteArrayInputStream(injected.toByteArray()),
-                            )
-                        } catch (e: Exception) {
-                            null
                         }
+                        return null
                     }
                 }
 
@@ -122,55 +95,7 @@ class LunarTurnstileSolver(
         return result
     }
 
-    private fun String.injectHook(): String {
-        val script = "<script>$HOOK_JS</script>"
-        val headIndex = indexOf("<head", ignoreCase = true)
-        return if (headIndex >= 0) {
-            val tagEnd = indexOf('>', headIndex) + 1
-            substring(0, tagEnd) + script + substring(tagEnd)
-        } else {
-            script + this
-        }
-    }
-
     companion object {
-        private const val BRIDGE_NAME = "LunarTurnstileBridge"
-
-        private const val HOOK_JS = """
-            (function() {
-                if (window.__lunarHooked) return;
-                window.__lunarHooked = true;
-                function getHeader(headers, name) {
-                    try {
-                        if (!headers) return null;
-                        if (typeof headers.get === 'function') return headers.get(name);
-                        return headers[name] || headers[name.toLowerCase()] || null;
-                    } catch (e) { return null; }
-                }
-                function check(headers) {
-                    var token = getHeader(headers, 'catch-me-if-you-can-monkey');
-                    if (token && !window.__lunarTokenSent) {
-                        window.__lunarTokenSent = true;
-                        try { window.LunarTurnstileBridge.onToken(token); } catch (e) {}
-                    }
-                }
-                var origFetch = window.fetch;
-                window.fetch = function(url, opts) {
-                    if (opts && opts.headers) check(opts.headers);
-                    return origFetch.apply(this, arguments);
-                };
-                var OrigHeaders = window.Headers;
-                if (OrigHeaders) {
-                    window.Headers = function(init) {
-                        var h = new OrigHeaders(init);
-                        check(h);
-                        return h;
-                    };
-                    window.Headers.prototype = OrigHeaders.prototype;
-                }
-            })();
-        """
-
         private const val DESTROY_TIMEOUT_MS = 300000L
         private const val TOKEN_TTL_MS = 210000L
         private const val SOLVE_TIMEOUT_MS = 30000L
