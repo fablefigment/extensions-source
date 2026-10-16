@@ -140,20 +140,34 @@ class LunarTurnstileSolver(
             (function() {
                 if (window.__lunarHooked) return;
                 window.__lunarHooked = true;
-                function check(headers) {
+                function getHeader(headers, name) {
                     try {
-                        var token = headers['catch-me-if-you-can-monkey'] || headers['Catch-Me-If-You-Can-Monkey'];
-                        if (token && !window.__lunarTokenSent) {
-                            window.__lunarTokenSent = true;
-                            window.LunarTurnstileBridge.onToken(token);
-                        }
-                    } catch (e) {}
+                        if (!headers) return null;
+                        if (typeof headers.get === 'function') return headers.get(name);
+                        return headers[name] || headers[name.toLowerCase()] || null;
+                    } catch (e) { return null; }
+                }
+                function check(headers) {
+                    var token = getHeader(headers, 'catch-me-if-you-can-monkey');
+                    if (token && !window.__lunarTokenSent) {
+                        window.__lunarTokenSent = true;
+                        try { window.LunarTurnstileBridge.onToken(token); } catch (e) {}
+                    }
                 }
                 var origFetch = window.fetch;
                 window.fetch = function(url, opts) {
                     if (opts && opts.headers) check(opts.headers);
                     return origFetch.apply(this, arguments);
                 };
+                var OrigHeaders = window.Headers;
+                if (OrigHeaders) {
+                    window.Headers = function(init) {
+                        var h = new OrigHeaders(init);
+                        check(h);
+                        return h;
+                    };
+                    window.Headers.prototype = OrigHeaders.prototype;
+                }
             })();
         """
 
