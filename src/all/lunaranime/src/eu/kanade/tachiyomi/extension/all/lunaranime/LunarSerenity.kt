@@ -71,6 +71,8 @@ class LunarSerenity(
         private const val PREFS_NAME = "lunar_serenity"
         private const val KEY_PRIVATE = "ec_private_key"
         private const val KEY_PUBLIC = "ec_public_key"
+        private const val PROOF_HEADER = "cant-catch-this-monkey"
+        private const val COORDINATE_SIZE = 32
     }
 
     private val publicPoint get() = (keyPair.public as ECPublicKey).w
@@ -165,9 +167,5 @@ class LunarSerenity(
             else -> ByteArray(COORDINATE_SIZE).also { bytes.copyInto(it, COORDINATE_SIZE - bytes.size) }
         }
     }
-
-    companion object {
-        private const val PROOF_HEADER = "cant-catch-this-monkey"
-        private const val COORDINATE_SIZE = 32
-    }
+}
 }
