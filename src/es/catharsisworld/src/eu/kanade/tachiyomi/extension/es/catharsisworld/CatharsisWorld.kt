@@ -22,6 +22,9 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Response
+import javax.crypto.Mac
+import javax.crypto.spec.SecretKeySpec
+import kotlin.random.Random
 import kotlin.time.Duration.Companion.seconds
 
 @Source
@@ -30,10 +33,10 @@ abstract class CatharsisWorld : KeiSource() {
     private val apiUrl get() = "$baseUrl/api"
 
     override fun OkHttpClient.Builder.configureClient(): OkHttpClient.Builder = rateLimit(3, 1.seconds) { it.host == baseUrl.toHttpUrl().host }
+        .addInterceptor(::signatureInterceptor)
         .addInterceptor(::pageInterceptor)
 
-    override fun Headers.Builder.configureHeaders(): Headers.Builder = add("x-api-key", API_KEY)
-        .add("System", "catharsis")
+    override fun Headers.Builder.configureHeaders(): Headers.Builder = add("System", "catharsis")
         .add("X-FK-Sistema", "3")
 
     override suspend fun getPopularManga(page: Int) = searchMangas(page, "", "-n_visitas", null, emptyList())
@@ -114,6 +117,31 @@ abstract class CatharsisWorld : KeiSource() {
         .mapIndexed { i, token -> Page(i, imageUrl = "$apiUrl/mangas/pages/$token") }
 
     // Page images are XOR-ed with a single-byte key unless they already start with an image signature
+    private fun signatureInterceptor(chain: Interceptor.Chain): Response {
+        val request = chain.request()
+        if (!request.url.encodedPath.startsWith("/api/")) return chain.proceed(request)
+        val timestamp = System.currentTimeMillis().toString()
+        val nonce = generateNonce()
+        val signature = hmacSha256("$timestamp:$nonce:${request.method}", HMAC_KEY)
+        val newRequest = request.newBuilder()
+            .addHeader("x-catharsis-time", timestamp)
+            .addHeader("x-catharsis-nonce", nonce)
+            .addHeader("x-catharsis-sig", signature)
+            .build()
+        return chain.proceed(newRequest)
+    }
+
+    private fun generateNonce(): String {
+        val chars = ('a'..'z') + ('A'..'Z') + ('0'..'9')
+        return (1..16).map { chars[Random.nextInt(chars.size)] }.joinToString("")
+    }
+
+    private fun hmacSha256(data: String, key: String): String {
+        val mac = Mac.getInstance("HmacSHA256")
+        mac.init(SecretKeySpec(key.toByteArray(Charsets.UTF_8), "HmacSHA256"))
+        return mac.doFinal(data.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it.toInt() and 0xFF) }
+    }
+
     private fun pageInterceptor(chain: Interceptor.Chain): Response {
         val response = chain.proceed(chain.request())
         if (!chain.request().url.encodedPath.startsWith("/api/mangas/pages/") || !response.isSuccessful) return response
@@ -139,7 +167,7 @@ abstract class CatharsisWorld : KeiSource() {
 
     companion object {
         private const val PAGE_SIZE = 24
-        private const val API_KEY = "SrfnigkBo3YLbySfIE0DU9WtmlF7Ov4mzakJlBV9ZCw"
+        private const val HMAC_KEY = "4$^£]C8j%La3"
         private const val XOR_KEY = 0x43
         private const val HEADER_SIZE = 12
     }
