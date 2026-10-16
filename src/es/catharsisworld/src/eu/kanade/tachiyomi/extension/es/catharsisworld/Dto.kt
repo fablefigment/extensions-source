@@ -94,3 +94,17 @@ class PageDto(
     val id: String,
     val index: Int,
 )
+
+@Serializable
+class PageTicketRequest(
+    private val pageIndex: Int,
+    private val sessionToken: String,
+)
+
+@Serializable
+class PageTicketResponse(
+    val signedToken: String,
+    private val pageId: String,
+    private val scrambleKey: String? = null,
+    val xorByte: Int,
+)
