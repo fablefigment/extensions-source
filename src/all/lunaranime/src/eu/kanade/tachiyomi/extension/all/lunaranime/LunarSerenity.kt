@@ -1,7 +1,6 @@
 package eu.kanade.tachiyomi.extension.all.lunaranime
 
 import android.util.Base64
-import android.util.Log
 import okhttp3.HttpUrl
 import okhttp3.Interceptor
 import java.math.BigInteger
@@ -79,7 +78,6 @@ class LunarSerenity(
 
         // The site mints a fresh key pair whenever the server rejects the current one.
         if (response.code == 403 && response.peekBody(1024).string().contains("validate", ignoreCase = true)) {
-            Log.d(TAG, "interceptor: 403 key rejected for ${request.url}, resetting key pair and retrying")
             response.close()
             reset()
             return@Interceptor chain.proceed(request.withProof())
@@ -89,19 +87,15 @@ class LunarSerenity(
     }
 
     private fun okhttp3.Request.withProof(): okhttp3.Request {
-        Log.d(TAG, "withProof: ${method} ${url}")
         val builder = newBuilder()
             .header(PROOF_HEADER, proof(method, url))
         val token = turnstileSolver.getToken()
         if (token != null && token != turnstileSentForToken) {
-            Log.d(TAG, "withProof: attaching Turnstile headers to $url")
             builder.header(TURNSTILE_TOKEN_HEADER, token)
                 .header(TURNSTILE_PROVIDER_HEADER, TURNSTILE_PROVIDER)
             turnstileSentForToken = token
         } else if (token != null) {
-            Log.d(TAG, "withProof: Turnstile headers already sent for this token, skipping for $url")
         } else {
-            Log.d(TAG, "withProof: no Turnstile token, DPoP only for $url")
         }
         return builder.build()
     }
@@ -150,7 +144,6 @@ class LunarSerenity(
     }
 
     companion object {
-        private const val TAG = "LunarManga"
         private const val PROOF_HEADER = "cant-catch-this-monkey"
         private const val TURNSTILE_TOKEN_HEADER = "catch-me-if-you-can-monkey"
         private const val TURNSTILE_PROVIDER_HEADER = "which-monkey"
