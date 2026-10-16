@@ -82,4 +82,14 @@ class ChapterDto(
 }
 
 @Serializable
-class PagesDto(val paginas: List<String>)
+class PagesDto(
+    val paginas: List<PageDto>,
+    val chapterSessionToken: String? = null,
+)
+
+@Serializable
+class PageDto(
+    val pageId: String,
+    val id: String,
+    val index: Int,
+)

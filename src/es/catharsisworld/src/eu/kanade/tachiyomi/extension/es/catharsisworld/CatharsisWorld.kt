@@ -21,6 +21,7 @@ import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
+import okhttp3.Request
 import okhttp3.Response
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
@@ -111,10 +112,21 @@ abstract class CatharsisWorld : KeiSource() {
         )
     }
 
-    override suspend fun getPageList(chapter: SChapter): List<Page> = client.get("$apiUrl/mangas/${chapter.url}")
-        .parseAs<PagesDto>()
-        .paginas
-        .mapIndexed { i, token -> Page(i, imageUrl = "$apiUrl/mangas/pages/$token") }
+    override suspend fun getPageList(chapter: SChapter): List<Page> {
+        val dto = client.get("$apiUrl/mangas/${chapter.url}").parseAs<PagesDto>()
+        sessionToken = dto.chapterSessionToken
+        return dto.paginas.mapIndexed { i, page -> Page(i, imageUrl = "$apiUrl/mangas/pages/${page.pageId}") }
+    }
+
+    private var sessionToken: String? = null
+
+    override fun imageRequest(page: Page): Request {
+        val builder = Request.Builder()
+            .url(page.imageUrl!!)
+            .addHeader("X-Catharsis-Reader", "1")
+        sessionToken?.let { builder.addHeader("Authorization", "Bearer $it") }
+        return builder.build()
+    }
 
     // Page images are XOR-ed with a single-byte key unless they already start with an image signature
     private fun signatureInterceptor(chain: Interceptor.Chain): Response {
@@ -149,6 +161,7 @@ abstract class CatharsisWorld : KeiSource() {
         val body = response.body
         val source = body.source()
         if (!source.request(HEADER_SIZE.toLong())) return response
+        if (source.buffer.size < HEADER_SIZE) return response
         val header = source.buffer.snapshot(HEADER_SIZE).toByteArray()
         val decoded = ByteArray(HEADER_SIZE) { (header[it].toInt() xor XOR_KEY).toByte() }
         if (isImage(header) || !isImage(decoded)) return response
