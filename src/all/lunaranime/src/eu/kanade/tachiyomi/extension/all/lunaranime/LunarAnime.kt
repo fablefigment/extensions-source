@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.extension.all.lunaranime
 
+import android.util.Log
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.source.model.Filter
 import eu.kanade.tachiyomi.source.model.FilterList
@@ -189,10 +190,16 @@ abstract class LunarAnime : KeiSource() {
     // =============================== Pages ================================
 
     private suspend fun viewChapter(slug: String, number: String, lang: String) {
-        client.get("$API_URL/api/manga/rating/status/$slug/$number", ensureSuccess = false).close()
+        val ratingUrl = "$API_URL/api/manga/rating/status/$slug/$number"
+        val ratingResp = client.get(ratingUrl, ensureSuccess = false)
+        Log.d(TAG, "viewChapter: GET $ratingUrl -> ${ratingResp.code}")
+        ratingResp.close()
 
         val body = ViewRequestBody(slug, number, lang).toJsonRequestBody()
-        client.post("$API_URL/api/manga/chapter/view", body, ensureSuccess = false).close()
+        val viewUrl = "$API_URL/api/manga/chapter/view"
+        val viewResp = client.post(viewUrl, body, ensureSuccess = false)
+        Log.d(TAG, "viewChapter: POST $viewUrl -> ${viewResp.code}")
+        viewResp.close()
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> {
@@ -212,12 +219,15 @@ abstract class LunarAnime : KeiSource() {
             .apply { if (language != "en") addQueryParameter("language", language) }
             .build()
 
+        Log.d(TAG, "getPageList: GET $url")
         val sessionData = client.get(url).parseAs<LunarPageListResponse>()
             .data?.sessionData
             ?: error("session_data is empty")
 
         val images = crypto.unpack(sessionData, seeds, minted.nonce)
             .parseAs<LunarPageListDecrypted>().data.images
+
+        Log.d(TAG, "getPageList: decrypted ${images.size} images")
 
         return images.mapIndexed { index, imageUrl ->
             Page(index, chapter.url, imageUrl)
@@ -255,6 +265,7 @@ abstract class LunarAnime : KeiSource() {
     }
 
     companion object {
+        private const val TAG = "LunarManga"
         private const val API_URL = "https://api.lunarx.to"
         private const val CDN_URL = "https://vault.lunarx.to"
     }
