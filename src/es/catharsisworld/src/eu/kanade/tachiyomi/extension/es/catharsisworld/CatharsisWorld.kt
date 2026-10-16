@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.extension.es.catharsisworld
 
+import android.util.Log
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
@@ -114,9 +115,17 @@ abstract class CatharsisWorld : KeiSource() {
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> {
-        val dto = client.get("$apiUrl/mangas/${chapter.url}").parseAs<PagesDto>()
-        sessionToken = dto.chapterSessionToken
-        return dto.paginas.mapIndexed { i, page -> Page(i, imageUrl = "$apiUrl/mangas/pages/${page.pageId}") }
+        val url = "$apiUrl/mangas/${chapter.url}"
+        Log.d(TAG, "getPageList: GET $url")
+        try {
+            val dto = client.get(url).parseAs<PagesDto>()
+            sessionToken = dto.chapterSessionToken
+            Log.d(TAG, "getPageList: ok, pages=${dto.paginas.size}, sessionToken=${sessionToken != null}")
+            return dto.paginas.mapIndexed { i, page -> Page(i, imageUrl = "$apiUrl/mangas/pages/${page.pageId}") }
+        } catch (e: Exception) {
+            Log.e(TAG, "getPageList: failed for $url: ${e.message}", e)
+            throw e
+        }
     }
 
     private var sessionToken: String? = null
@@ -126,16 +135,21 @@ abstract class CatharsisWorld : KeiSource() {
             .add("X-Catharsis-Reader", "1")
             .apply { sessionToken?.let { add("Authorization", "Bearer $it") } }
             .build()
+        Log.d(TAG, "imageRequest: url=${page.imageUrl}, bearer=${sessionToken != null}, defaultHeaders=[${headers.names().joinToString()}]")
         return GET(page.imageUrl!!, reqHeaders)
     }
 
     // Page images are XOR-ed with a single-byte key unless they already start with an image signature
     private fun signatureInterceptor(chain: Interceptor.Chain): Response {
         val request = chain.request()
-        if (!request.url.encodedPath.startsWith("/api/")) return chain.proceed(request)
+        if (!request.url.encodedPath.startsWith("/api/")) {
+            Log.d(TAG, "signatureInterceptor: skip non-api path=${request.url.encodedPath}")
+            return chain.proceed(request)
+        }
         val timestamp = System.currentTimeMillis().toString()
         val nonce = generateNonce()
         val signature = hmacSha256("$timestamp:$nonce:${request.method}", HMAC_KEY)
+        Log.d(TAG, "signatureInterceptor: signing path=${request.url.encodedPath} time=$timestamp")
         val newRequest = request.newBuilder()
             .addHeader("x-catharsis-time", timestamp)
             .addHeader("x-catharsis-nonce", nonce)
@@ -157,6 +171,9 @@ abstract class CatharsisWorld : KeiSource() {
 
     private fun pageInterceptor(chain: Interceptor.Chain): Response {
         val response = chain.proceed(chain.request())
+        if (chain.request().url.encodedPath.startsWith("/api/mangas/pages/")) {
+            Log.d(TAG, "pageInterceptor: ${chain.request().method} ${chain.request().url.encodedPath} -> ${response.code}")
+        }
         if (!chain.request().url.encodedPath.startsWith("/api/mangas/pages/") || !response.isSuccessful) return response
 
         val body = response.body
@@ -180,6 +197,7 @@ abstract class CatharsisWorld : KeiSource() {
     }
 
     companion object {
+        private const val TAG = "CatharsisWorld"
         private const val PAGE_SIZE = 24
         private const val HMAC_KEY = "4$^£]C8j%La3"
         private const val XOR_KEY = 0x43
