@@ -1,5 +1,10 @@
 package eu.kanade.tachiyomi.extension.es.catharsisworld
 
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Rect
 import android.util.Base64
 import android.util.Log
 import eu.kanade.tachiyomi.network.GET
@@ -10,6 +15,10 @@ import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.model.SMangaUpdate
+import java.io.ByteArrayOutputStream
+import java.util.concurrent.ConcurrentHashMap
+import javax.crypto.Mac
+import javax.crypto.spec.SecretKeySpec
 import keiyoushi.annotation.Source
 import keiyoushi.network.get
 import keiyoushi.network.rateLimit
@@ -19,21 +28,19 @@ import keiyoushi.utils.firstInstanceOrNull
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonElement
 import keiyoushi.utils.toJsonRequestBody
-import keiyoushi.utils.xor
+import kotlin.random.Random
+import kotlin.time.Duration.Companion.seconds
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import okhttp3.Headers
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Interceptor
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
-import java.util.concurrent.ConcurrentHashMap
-import javax.crypto.Mac
-import javax.crypto.spec.SecretKeySpec
-import kotlin.random.Random
-import kotlin.time.Duration.Companion.seconds
+import okhttp3.ResponseBody.Companion.toResponseBody
 
 @Source
 abstract class CatharsisWorld : KeiSource() {
@@ -153,12 +160,14 @@ abstract class CatharsisWorld : KeiSource() {
                 response.parseAs<PageTicketResponse>()
             }
             xorKeys[ticket.signedToken] = ticket.xorByte
+            ticket.scrambleKey?.let { scrambleKeys[ticket.signedToken] = it }
             Log.d(TAG, "getPageList: ticket $i ok, xorByte=${ticket.xorByte}")
             Page(i, imageUrl = "$apiUrl/mangas/pages/${ticket.signedToken}")
         }
     }
 
     private val xorKeys = ConcurrentHashMap<String, Int>()
+    private val scrambleKeys = ConcurrentHashMap<String, String>()
 
     override fun imageRequest(page: Page): Request {
         val reqHeaders = headers.newBuilder()
@@ -205,7 +214,8 @@ abstract class CatharsisWorld : KeiSource() {
         Log.d(TAG, "pageInterceptor: ${request.method} $path -> ${response.code}")
         if (!response.isSuccessful) return response
 
-        val xorByte = xorKeys[request.url.pathSegments.lastOrNull()] ?: return response
+        val signedToken = request.url.pathSegments.lastOrNull() ?: return response
+        val xorByte = xorKeys[signedToken] ?: return response
 
         val body = response.body
         val source = body.source()
@@ -215,7 +225,130 @@ abstract class CatharsisWorld : KeiSource() {
         val decoded = ByteArray(HEADER_SIZE) { (header[it].toInt() xor xorByte).toByte() }
         if (isImage(header) || !isImage(decoded)) return response
 
-        return response.xor(xorByte)
+        val bytes = body.bytes()
+        val decodedBytes = ByteArray(bytes.size) { (bytes[it].toInt() xor xorByte).toByte() }
+        val scrambleKey = scrambleKeys[signedToken]
+        val bitmap = BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.size)
+        if (bitmap == null || scrambleKey == null || bitmap.width < 800 || bitmap.height < 800) {
+            return response.newBuilder()
+                .body(decodedBytes.toResponseBody(body.contentType()))
+                .build()
+        }
+        val descrambled = descramble(bitmap, scrambleKey)
+        bitmap.recycle()
+        val out = ByteArrayOutputStream()
+        descrambled.compress(Bitmap.CompressFormat.PNG, 100, out)
+        descrambled.recycle()
+        return response.newBuilder()
+            .body(out.toByteArray().toResponseBody("image/png".toMediaType()))
+            .build()
+    }
+
+    private fun imul(a: Int, b: Int): Int = (a.toLong() * b.toLong()).toInt()
+
+    private fun seededRandom(key: String): () -> Double {
+        var hash = 0
+        for (c in key) {
+            hash = imul(hash, 31) + c.code
+        }
+        var state = hash
+        return {
+            state += 1831565813
+            var y = state
+            y = imul(y xor (y ushr 15), y or 1)
+            y = y xor (y + imul(y xor (y ushr 7), y or 61))
+            (y xor (y ushr 14)).toUInt().toLong().toDouble() / 4294967296.0
+        }
+    }
+
+    private fun descramble(bitmap: Bitmap, key: String): Bitmap {
+        val rand = seededRandom(key)
+        val cols = 8
+        val rows = 8
+        val w = bitmap.width
+        val h = bitmap.height
+
+        val colBounds = IntArray(cols + 1)
+        colBounds[0] = 0
+        colBounds[cols] = w
+        val baseColW = w / cols
+        var x = 0
+        for (i in 0 until cols - 1) {
+            var cw = baseColW + Math.round((rand() * 0.7 - 0.35) * baseColW).toInt()
+            val remaining = cols - 1 - i
+            val maxW = w - x - remaining * 16
+            cw = cw.coerceIn(16, maxOf(16, maxW))
+            x += cw
+            colBounds[i + 1] = x
+        }
+
+        val rowBounds = IntArray(rows + 1)
+        rowBounds[0] = 0
+        rowBounds[rows] = h
+        val baseRowH = h / rows
+        var yy = 0
+        for (i in 0 until rows - 1) {
+            var rh = baseRowH + Math.round((rand() * 0.7 - 0.35) * baseRowH).toInt()
+            val remaining = rows - 1 - i
+            val maxH = h - yy - remaining * 16
+            rh = rh.coerceIn(16, maxOf(16, maxH))
+            yy += rh
+            rowBounds[i + 1] = yy
+        }
+
+        val colPerm = IntArray(cols) { it }
+        for (i in cols - 1 downTo 1) {
+            val j = (rand() * (i + 1)).toInt()
+            val tmp = colPerm[i]
+            colPerm[i] = colPerm[j]
+            colPerm[j] = tmp
+        }
+
+        val rowPerm = IntArray(rows) { it }
+        for (i in rows - 1 downTo 1) {
+            val j = (rand() * (i + 1)).toInt()
+            val tmp = rowPerm[i]
+            rowPerm[i] = rowPerm[j]
+            rowPerm[j] = tmp
+        }
+
+        val invCol = IntArray(cols)
+        for (i in 0 until cols) invCol[colPerm[i]] = i
+        val invRow = IntArray(rows)
+        for (i in 0 until rows) invRow[rowPerm[i]] = i
+
+        val shuffledColPos = IntArray(cols + 1)
+        shuffledColPos[0] = 0
+        for (i in 0 until cols) {
+            val shuffledIdx = colPerm[i]
+            shuffledColPos[i + 1] = shuffledColPos[i] + (colBounds[shuffledIdx + 1] - colBounds[shuffledIdx])
+        }
+
+        val shuffledRowPos = IntArray(rows + 1)
+        shuffledRowPos[0] = 0
+        for (i in 0 until rows) {
+            val shuffledIdx = rowPerm[i]
+            shuffledRowPos[i + 1] = shuffledRowPos[i] + (rowBounds[shuffledIdx + 1] - rowBounds[shuffledIdx])
+        }
+
+        val output = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(output)
+        val paint = Paint().apply { isFilterBitmap = false }
+
+        for (row in 0 until rows) {
+            for (col in 0 until cols) {
+                val dx = colBounds[col]
+                val dy = rowBounds[row]
+                val dw = colBounds[col + 1] - colBounds[col]
+                val dh = rowBounds[row + 1] - rowBounds[row]
+                val sx = shuffledColPos[invCol[col]]
+                val sy = shuffledRowPos[invRow[row]]
+                val src = Rect(sx, sy, sx + dw, sy + dh)
+                val dst = Rect(dx, dy, dx + dw, dy + dh)
+                canvas.drawBitmap(bitmap, src, dst, paint)
+            }
+        }
+        return output
     }
 
     private fun isImage(bytes: ByteArray): Boolean {
