@@ -1,6 +1,9 @@
 package eu.kanade.tachiyomi.extension.all.lunaranime
 
+import androidx.preference.EditTextPreference
+import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.source.ConfigurableSource
 import eu.kanade.tachiyomi.source.model.Filter
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
@@ -23,7 +26,23 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 
 @Source
-abstract class LunarAnime : KeiSource() {
+abstract class LunarAnime : KeiSource(), ConfigurableSource {
+
+    override fun setupPreferenceScreen(screen: PreferenceScreen) {
+        EditTextPreference(screen.context).apply {
+            key = MANUAL_TOKEN_KEY
+            title = "Manual Turnstile token (debug)"
+            summary = "Paste a fresh Catch-Me-If-You-Can-Monkey value to validate the keypair once."
+            setDefaultValue("")
+        }.also(screen::addPreference)
+    }
+
+    private fun manualToken(): String? =
+        preferences.getString(MANUAL_TOKEN_KEY, null)?.takeIf { it.isNotBlank() }
+
+    companion object {
+        const val MANUAL_TOKEN_KEY = "lunar_manual_turnstile_token"
+    }
 
     private val internalLang: String = when (lang) {
         "pt-BR" -> "pt-br"
@@ -48,8 +67,9 @@ abstract class LunarAnime : KeiSource() {
                 chain.proceed(newRequest)
             } else if (request.url.encodedPath.contains("/api/manga/r/")) {
                 val builder = request.newBuilder()
-                turnstileSolver.getToken()?.let { token ->
-                    builder.header("Catch-Me-If-You-Can-Monkey", token)
+                val token = manualToken() ?: turnstileSolver.getToken()
+                token?.let {
+                    builder.header("Catch-Me-If-You-Can-Monkey", it)
                         .header("Which-Monkey", "turnstile")
                 }
                 chain.proceed(builder.build())

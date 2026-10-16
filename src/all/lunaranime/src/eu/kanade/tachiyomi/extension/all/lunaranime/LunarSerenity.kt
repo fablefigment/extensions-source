@@ -1,15 +1,19 @@
 package eu.kanade.tachiyomi.extension.all.lunaranime
 
+import android.content.Context
 import android.util.Base64
+import keiyoushi.utils.applicationContext
 import okhttp3.HttpUrl
 import okhttp3.Interceptor
 import java.math.BigInteger
+import java.security.KeyFactory
 import java.security.KeyPair
 import java.security.KeyPairGenerator
 import java.security.MessageDigest
 import java.security.Signature
 import java.security.interfaces.ECPublicKey
 import java.security.spec.ECGenParameterSpec
+import java.security.spec.PKCS8EncodedKeySpec
 import java.util.UUID
 
 /**
@@ -23,7 +27,36 @@ class LunarSerenity(
 ) {
 
     @Volatile
-    private var keyPair: KeyPair = generateKeyPair()
+    private var keyPair: KeyPair = loadOrGenerateKeyPair()
+
+    private fun prefs() = applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+    private fun loadOrGenerateKeyPair(): KeyPair {
+        val prefs = prefs()
+        val privB64 = prefs.getString(KEY_PRIVATE, null)
+        val pubB64 = prefs.getString(KEY_PUBLIC, null)
+        if (privB64 != null && pubB64 != null) {
+            try {
+                val kf = KeyFactory.getInstance("EC")
+                val privateKey = kf.generatePrivate(
+                    PKCS8EncodedKeySpec(Base64.decode(privB64, Base64.NO_WRAP)),
+                )
+                val publicKey = kf.generatePublic(
+                    java.security.spec.X509EncodedKeySpec(Base64.decode(pubB64, Base64.NO_WRAP)),
+                )
+                return KeyPair(publicKey, privateKey)
+            } catch (e: Exception) {
+            }
+        }
+        return generateKeyPair().also { saveKeyPair(it) }
+    }
+
+    private fun saveKeyPair(pair: KeyPair) {
+        prefs().edit()
+            .putString(KEY_PRIVATE, Base64.encodeToString(pair.private.encoded, Base64.NO_WRAP))
+            .putString(KEY_PUBLIC, Base64.encodeToString(pair.public.encoded, Base64.NO_WRAP))
+            .apply()
+    }
 
     private fun generateKeyPair(): KeyPair = KeyPairGenerator.getInstance("EC").apply {
         initialize(ECGenParameterSpec("secp256r1"))
@@ -31,7 +64,13 @@ class LunarSerenity(
 
     @Synchronized
     fun reset() {
-        keyPair = generateKeyPair()
+        keyPair = generateKeyPair().also { saveKeyPair(it) }
+    }
+
+    companion object {
+        private const val PREFS_NAME = "lunar_serenity"
+        private const val KEY_PRIVATE = "ec_private_key"
+        private const val KEY_PUBLIC = "ec_public_key"
     }
 
     private val publicPoint get() = (keyPair.public as ECPublicKey).w
