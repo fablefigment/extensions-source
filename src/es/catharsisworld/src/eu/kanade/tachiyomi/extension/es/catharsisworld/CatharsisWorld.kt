@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.extension.es.catharsisworld
 
+import android.util.Base64
 import android.util.Log
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.HttpException
@@ -19,6 +20,7 @@ import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonElement
 import keiyoushi.utils.toJsonRequestBody
 import keiyoushi.utils.xor
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import okhttp3.Headers
 import okhttp3.HttpUrl
@@ -134,10 +136,15 @@ abstract class CatharsisWorld : KeiSource() {
         }
         val token = dto.chapterSessionToken
             ?: throw IllegalStateException("Missing chapter session token")
+        val chapterId = token.split(".").firstOrNull()
+            ?.let { Base64.decode(it, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP) }
+            ?.let { String(it, Charsets.UTF_8) }
+            ?.let { Json.decodeFromString<ChapterTokenPayload>(it).cid }
+            ?: throw IllegalStateException("Invalid chapter session token")
         Log.d(TAG, "getPageList: ok, pages=${dto.paginas.size}")
         return dto.paginas.mapIndexed { i, pageDto ->
             val ticketRequest = Request.Builder()
-                .url("$apiUrl/mangas/chapters/${pageDto.id}/page-ticket")
+                .url("$apiUrl/mangas/chapters/$chapterId/page-ticket")
                 .post(PageTicketRequest(pageDto.index, token).toJsonRequestBody())
                 .headers(headers)
                 .build()
