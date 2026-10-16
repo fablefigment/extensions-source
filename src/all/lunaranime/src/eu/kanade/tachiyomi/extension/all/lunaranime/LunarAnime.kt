@@ -33,7 +33,8 @@ abstract class LunarAnime : KeiSource() {
     private val apiurlHost by lazy { API_URL.toHttpUrl().host }
     private val cdnurlHost by lazy { CDN_URL.toHttpUrl().host }
 
-    private val serenity = LunarSerenity(API_URL)
+    private val turnstileSolver by lazy { LunarTurnstileSolver(baseUrl) }
+    private val serenity by lazy { LunarSerenity(API_URL, turnstileSolver) }
 
     override fun OkHttpClient.Builder.configureClient() = this
         .addInterceptor(serenity.interceptor())

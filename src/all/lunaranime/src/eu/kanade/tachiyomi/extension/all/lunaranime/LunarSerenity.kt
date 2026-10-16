@@ -18,7 +18,10 @@ import java.util.UUID
  * the `cant-catch-this-monkey` header. The key pair is never issued or acknowledged by the
  * server, so one generated here is just as valid.
  */
-class LunarSerenity(private val apiUrl: String) {
+class LunarSerenity(
+    private val apiUrl: String,
+    private val turnstileSolver: LunarTurnstileSolver,
+) {
 
     @Volatile
     private var keyPair: KeyPair = generateKeyPair()
@@ -80,9 +83,15 @@ class LunarSerenity(private val apiUrl: String) {
         response
     }
 
-    private fun okhttp3.Request.withProof() = newBuilder()
-        .header(PROOF_HEADER, proof(method, url))
-        .build()
+    private fun okhttp3.Request.withProof(): okhttp3.Request {
+        val builder = newBuilder()
+            .header(PROOF_HEADER, proof(method, url))
+        turnstileSolver.getToken()?.let { token ->
+            builder.header(TURNSTILE_TOKEN_HEADER, token)
+                .header(TURNSTILE_PROVIDER_HEADER, TURNSTILE_PROVIDER)
+        }
+        return builder.build()
+    }
 
     private fun sha256(bytes: ByteArray): ByteArray = MessageDigest.getInstance("SHA-256").digest(bytes)
 
@@ -129,6 +138,9 @@ class LunarSerenity(private val apiUrl: String) {
 
     companion object {
         private const val PROOF_HEADER = "cant-catch-this-monkey"
+        private const val TURNSTILE_TOKEN_HEADER = "catch-me-if-you-can-monkey"
+        private const val TURNSTILE_PROVIDER_HEADER = "which-monkey"
+        private const val TURNSTILE_PROVIDER = "turnstile"
         private const val COORDINATE_SIZE = 32
     }
 }
