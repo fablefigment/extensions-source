@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.extension.all.lunaranime
 
+import android.content.Context
 import androidx.preference.EditTextPreference
 import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.network.GET
@@ -16,6 +17,7 @@ import keiyoushi.network.get
 import keiyoushi.network.post
 import keiyoushi.network.rateLimit
 import keiyoushi.source.KeiSource
+import keiyoushi.utils.applicationContext
 import keiyoushi.utils.asJsoup
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonRequestBody
@@ -37,8 +39,13 @@ abstract class LunarAnime : KeiSource(), ConfigurableSource {
         }.also(screen::addPreference)
     }
 
-    private fun manualToken(): String? =
-        preferences.getString(MANUAL_TOKEN_KEY, null)?.takeIf { it.isNotBlank() }
+    private fun manualToken(): String? {
+        val prefs = applicationContext.getSharedPreferences("lunar_serenity", Context.MODE_PRIVATE)
+        // Also check the source-specific prefs (set via UI)
+        val uiPrefs = applicationContext.getSharedPreferences("source_$id", Context.MODE_PRIVATE)
+        return uiPrefs.getString(MANUAL_TOKEN_KEY, null)
+            ?: prefs.getString(MANUAL_TOKEN_KEY, null)
+    }?.takeIf { it.isNotBlank() }
 
     companion object {
         const val MANUAL_TOKEN_KEY = "lunar_manual_turnstile_token"
