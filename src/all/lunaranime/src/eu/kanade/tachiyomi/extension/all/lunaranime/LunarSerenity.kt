@@ -26,9 +26,6 @@ class LunarSerenity(
     @Volatile
     private var keyPair: KeyPair = generateKeyPair()
 
-    @Volatile
-    private var turnstileSentForToken: String? = null
-
     private fun generateKeyPair(): KeyPair = KeyPairGenerator.getInstance("EC").apply {
         initialize(ECGenParameterSpec("secp256r1"))
     }.generateKeyPair()
@@ -89,13 +86,11 @@ class LunarSerenity(
     private fun okhttp3.Request.withProof(): okhttp3.Request {
         val builder = newBuilder()
             .header(PROOF_HEADER, proof(method, url))
-        val token = turnstileSolver.getToken()
-        if (token != null && token != turnstileSentForToken) {
-            builder.header(TURNSTILE_TOKEN_HEADER, token)
-                .header(TURNSTILE_PROVIDER_HEADER, TURNSTILE_PROVIDER)
-            turnstileSentForToken = token
-        } else if (token != null) {
-        } else {
+        if (url.encodedPath.contains("/api/manga/r/")) {
+            turnstileSolver.getToken()?.let { token ->
+                builder.header(TURNSTILE_TOKEN_HEADER, token)
+                    .header(TURNSTILE_PROVIDER_HEADER, TURNSTILE_PROVIDER)
+            }
         }
         return builder.build()
     }
