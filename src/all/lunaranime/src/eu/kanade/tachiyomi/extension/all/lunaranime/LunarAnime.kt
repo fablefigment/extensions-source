@@ -211,6 +211,8 @@ abstract class LunarAnime : KeiSource() {
         val language = chapterUrl.queryParameter("lang") ?: "en"
         val (slug, chapterNumber) = chapterUrl.pathSegments.takeLast(2)
 
+        turnstileSolver.harvestUrl = chapterUrl.toString()
+
         val seeds = crypto.extractSeeds(client.get(chapterUrl).asJsoup())
         val minted = crypto.mint(seeds, slug, chapterNumber)
 

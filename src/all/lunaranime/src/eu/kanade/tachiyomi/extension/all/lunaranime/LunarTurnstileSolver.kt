@@ -22,13 +22,16 @@ class LunarTurnstileSolver(
     @Volatile
     private var tokenTime: Long = 0L
 
+    @Volatile
+    var harvestUrl: String? = null
+
     fun getToken(): String? {
         cachedToken?.let {
             if (System.currentTimeMillis() - tokenTime < TOKEN_TTL_MS) {
                 return it
             }
         }
-        val token = solve()?.takeIf { it.isNotBlank() }?.let { "1.$it" }
+        val token = solve()
         if (token != null) {
             cachedToken = token
             tokenTime = System.currentTimeMillis()
@@ -58,7 +61,7 @@ class LunarTurnstileSolver(
                 webView.addJavascriptInterface(
                     object {
                         @JavascriptInterface
-                        fun onResult(token: String) {
+                        fun onToken(token: String) {
                             result = token.ifEmpty { null }
                             latch.countDown()
                         }
@@ -67,12 +70,12 @@ class LunarTurnstileSolver(
                 )
 
                 webView.webViewClient = object : WebViewClient() {
-                    override fun onPageFinished(view: WebView, url: String?) {
-                        view.evaluateJavascript(buildJs(), null)
+                    override fun onPageStarted(view: WebView, url: String?, favicon: android.graphics.Bitmap?) {
+                        view.evaluateJavascript(HOOK_JS, null)
                     }
                 }
 
-                webView.loadDataWithBaseURL(baseUrl, HTML, "text/html", "utf-8", null)
+                webView.loadUrl(harvestUrl ?: baseUrl)
 
                 destroyWv = Runnable {
                     cachedWv?.destroy()
@@ -90,43 +93,30 @@ class LunarTurnstileSolver(
         return result
     }
 
-    private fun buildJs(): String = """
-        (function() {
-            var done = false;
-            function finish(token) {
-                if (done) return;
-                done = true;
-                window.${BRIDGE_NAME}.onResult(token || "");
-            }
-            window.${TS_CALLBACK} = function() {
-                try {
-                    var widgetId = turnstile.render('#${TS_CONTAINER}', {
-                        sitekey: '${SITE_KEY}',
-                        size: 'invisible',
-                        callback: function(token) { finish(token); },
-                        'error-callback': function() { finish(""); }
-                    });
-                    turnstile.execute(widgetId);
-                } catch (e) { finish(""); }
-            };
-            var s = document.createElement('script');
-            s.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?onload=${TS_CALLBACK}';
-            s.async = true;
-            s.defer = true;
-            s.onerror = function() { finish(""); };
-            document.head.appendChild(s);
-            setTimeout(function() { finish(""); }, ${SOLVE_TIMEOUT_MS - 1000});
-        })();
-    """.trimIndent()
-
     companion object {
         private const val BRIDGE_NAME = "LunarTurnstileBridge"
-        private const val TS_CALLBACK = "lunarTsReady"
-        private const val TS_CONTAINER = "lunar-ts-container"
-        private const val SITE_KEY = "0x4AAAAAAEweOgJ6zfOKhkgq"
-        private const val HTML = "<html><body><div id=\"$TS_CONTAINER\"></div></body></html>"
+
+        private const val HOOK_JS = """
+            (function() {
+                if (window.__lunarHooked) return;
+                window.__lunarHooked = true;
+                var origFetch = window.fetch;
+                window.fetch = function(url, opts) {
+                    try {
+                        var headers = (opts && opts.headers) || {};
+                        var token = headers['catch-me-if-you-can-monkey'] || headers['Catch-Me-If-You-Can-Monkey'];
+                        if (token && !window.__lunarTokenSent) {
+                            window.__lunarTokenSent = true;
+                            window.LunarTurnstileBridge.onToken(token);
+                        }
+                    } catch (e) {}
+                    return origFetch.apply(this, arguments);
+                };
+            })();
+        """
+
         private const val DESTROY_TIMEOUT_MS = 300000L
         private const val TOKEN_TTL_MS = 210000L
-        private const val SOLVE_TIMEOUT_MS = 15000L
+        private const val SOLVE_TIMEOUT_MS = 25000L
     }
 }
