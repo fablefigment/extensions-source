@@ -84,12 +84,11 @@ class LunarSerenity(
     }
 
     private fun okhttp3.Request.withProof(): okhttp3.Request {
-        val builder = newBuilder()
-            .header(PROOF_HEADER, proof(method, url))
+        val builder = newBuilder().header(PROOF_HEADER, proof(method, url))
         if (url.encodedPath.contains("/api/manga/r/")) {
             turnstileSolver.getToken()?.let { token ->
                 builder.header(TURNSTILE_TOKEN_HEADER, token)
-                    .header(TURNSTILE_PROVIDER_HEADER, TURNSTILE_PROVIDER)
+                builder.header(TURNSTILE_PROVIDER_HEADER, TURNSTILE_PROVIDER)
             }
         }
         return builder.build()
