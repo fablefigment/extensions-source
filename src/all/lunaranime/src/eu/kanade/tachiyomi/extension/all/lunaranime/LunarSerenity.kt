@@ -20,7 +20,6 @@ import java.util.UUID
  */
 class LunarSerenity(
     private val apiUrl: String,
-    private val turnstileSolver: LunarTurnstileSolver,
 ) {
 
     @Volatile
@@ -84,14 +83,7 @@ class LunarSerenity(
     }
 
     private fun okhttp3.Request.withProof(): okhttp3.Request {
-        val builder = newBuilder().header(PROOF_HEADER, proof(method, url))
-        if (url.encodedPath.contains("/api/manga/r/")) {
-            turnstileSolver.getToken()?.let { token ->
-                builder.header(TURNSTILE_TOKEN_HEADER, token)
-                builder.header(TURNSTILE_PROVIDER_HEADER, TURNSTILE_PROVIDER)
-            }
-        }
-        return builder.build()
+        return newBuilder().header(PROOF_HEADER, proof(method, url)).build()
     }
 
     private fun sha256(bytes: ByteArray): ByteArray = MessageDigest.getInstance("SHA-256").digest(bytes)
@@ -139,9 +131,6 @@ class LunarSerenity(
 
     companion object {
         private const val PROOF_HEADER = "cant-catch-this-monkey"
-        private const val TURNSTILE_TOKEN_HEADER = "catch-me-if-you-can-monkey"
-        private const val TURNSTILE_PROVIDER_HEADER = "which-monkey"
-        private const val TURNSTILE_PROVIDER = "turnstile"
         private const val COORDINATE_SIZE = 32
     }
 }
