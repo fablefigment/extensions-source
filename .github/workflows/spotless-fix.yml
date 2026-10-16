@@ -1,0 +1,21 @@
+name: Spotless Fix
+on: workflow_dispatch
+permissions:
+  contents: write
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: lunarmanga-test
+      - uses: actions/setup-java@v4
+        with:
+          java-version: 25
+          distribution: temurin
+      - run: ./gradlew :src:all:lunaranime:spotlessApply --no-daemon
+      - run: |
+          git config user.name "Muse"
+          git config user.email "muse@local"
+          git add -A
+          git diff --staged --quiet || (git commit -m "Apply spotless formatting" && git push origin lunarmanga-test)
