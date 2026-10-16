@@ -1,6 +1,5 @@
 package eu.kanade.tachiyomi.extension.all.lunaranime
 
-import android.util.Log
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.source.model.Filter
 import eu.kanade.tachiyomi.source.model.FilterList
@@ -192,13 +191,11 @@ abstract class LunarAnime : KeiSource() {
     private suspend fun viewChapter(slug: String, number: String, lang: String) {
         val ratingUrl = "$API_URL/api/manga/rating/status/$slug/$number"
         val ratingResp = client.get(ratingUrl, ensureSuccess = false)
-        Log.d(TAG, "viewChapter: GET $ratingUrl -> ${ratingResp.code}")
         ratingResp.close()
 
         val body = ViewRequestBody(slug, number, lang).toJsonRequestBody()
         val viewUrl = "$API_URL/api/manga/chapter/view"
         val viewResp = client.post(viewUrl, body, ensureSuccess = false)
-        Log.d(TAG, "viewChapter: POST $viewUrl -> ${viewResp.code}")
         viewResp.close()
     }
 
@@ -219,7 +216,6 @@ abstract class LunarAnime : KeiSource() {
             .apply { if (language != "en") addQueryParameter("language", language) }
             .build()
 
-        Log.d(TAG, "getPageList: GET $url")
         val sessionData = client.get(url).parseAs<LunarPageListResponse>()
             .data?.sessionData
             ?: error("session_data is empty")
@@ -227,7 +223,6 @@ abstract class LunarAnime : KeiSource() {
         val images = crypto.unpack(sessionData, seeds, minted.nonce)
             .parseAs<LunarPageListDecrypted>().data.images
 
-        Log.d(TAG, "getPageList: decrypted ${images.size} images")
 
         return images.mapIndexed { index, imageUrl ->
             Page(index, chapter.url, imageUrl)
