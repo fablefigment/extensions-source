@@ -28,7 +28,9 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 
 @Source
-abstract class LunarAnime : KeiSource(), ConfigurableSource {
+abstract class LunarAnime :
+    KeiSource(),
+    ConfigurableSource {
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         EditTextPreference(screen.context).apply {
