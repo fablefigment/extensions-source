@@ -49,10 +49,6 @@ abstract class LunarAnime :
         return token?.takeIf { it.isNotBlank() }
     }
 
-    companion object {
-        const val MANUAL_TOKEN_KEY = "lunar_manual_turnstile_token"
-    }
-
     private val internalLang: String = when (lang) {
         "pt-BR" -> "pt-br"
         else -> lang
@@ -300,5 +296,6 @@ abstract class LunarAnime :
         private const val TAG = "LunarManga"
         private const val API_URL = "https://api.lunarx.to"
         private const val CDN_URL = "https://vault.lunarx.to"
+        const val MANUAL_TOKEN_KEY = "lunar_manual_turnstile_token"
     }
 }
