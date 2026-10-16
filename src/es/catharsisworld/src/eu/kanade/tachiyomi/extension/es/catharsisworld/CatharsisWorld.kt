@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.extension.es.catharsisworld
 
+import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.Page
@@ -121,11 +122,11 @@ abstract class CatharsisWorld : KeiSource() {
     private var sessionToken: String? = null
 
     override fun imageRequest(page: Page): Request {
-        val builder = Request.Builder()
-            .url(page.imageUrl!!)
-            .addHeader("X-Catharsis-Reader", "1")
-        sessionToken?.let { builder.addHeader("Authorization", "Bearer $it") }
-        return builder.build()
+        val reqHeaders = headers.newBuilder()
+            .add("X-Catharsis-Reader", "1")
+            .apply { sessionToken?.let { add("Authorization", "Bearer $it") } }
+            .build()
+        return GET(page.imageUrl!!, reqHeaders)
     }
 
     // Page images are XOR-ed with a single-byte key unless they already start with an image signature
