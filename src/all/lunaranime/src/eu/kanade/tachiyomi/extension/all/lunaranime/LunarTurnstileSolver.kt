@@ -3,11 +3,12 @@ package eu.kanade.tachiyomi.extension.all.lunaranime
 import android.os.Handler
 import android.os.Looper
 import android.webkit.JavascriptInterface
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import keiyoushi.utils.applicationContext
-import okhttp3.OkHttpClient
-import okhttp3.Request
+import java.io.ByteArrayInputStream
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
@@ -74,13 +75,36 @@ class LunarTurnstileSolver(
                     BRIDGE_NAME,
                 )
 
-                webView.webViewClient = WebViewClient()
-
-                val html = fetchHtml(url)?.injectHook() ?: run {
-                    latch.countDown()
-                    return@post
+                webView.webViewClient = object : WebViewClient() {
+                    override fun shouldInterceptRequest(
+                        view: WebView,
+                        request: WebResourceRequest,
+                    ): WebResourceResponse? {
+                        if (!request.isForMainFrame) return null
+                        return try {
+                            val conn = java.net.URL(request.url.toString()).openConnection()
+                            request.requestHeaders.forEach { (k, v) ->
+                                if (!k.equals("X-Requested-With", ignoreCase = true)) {
+                                    conn.setRequestProperty(k, v)
+                                }
+                            }
+                            conn.connect()
+                            val contentType = conn.contentType ?: "text/html"
+                            if (!contentType.contains("text/html")) return null
+                            val html = conn.inputStream.bufferedReader().readText()
+                            val injected = html.injectHook()
+                            WebResourceResponse(
+                                "text/html",
+                                "utf-8",
+                                ByteArrayInputStream(injected.toByteArray()),
+                            )
+                        } catch (e: Exception) {
+                            null
+                        }
+                    }
                 }
-                webView.loadDataWithBaseURL(baseUrl, html, "text/html", "utf-8", url)
+
+                webView.loadUrl(url)
 
                 destroyWv = Runnable {
                     cachedWv?.destroy()
@@ -96,21 +120,6 @@ class LunarTurnstileSolver(
 
         latch.await(SOLVE_TIMEOUT_MS, TimeUnit.MILLISECONDS)
         return result
-    }
-
-    private fun fetchHtml(url: String): String? = try {
-        val request = Request.Builder()
-            .url(url)
-            .header(
-                "User-Agent",
-                "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Mobile Safari/537.36",
-            )
-            .build()
-        OkHttpClient().newCall(request).execute().use { response ->
-            if (response.isSuccessful) response.body.string() else null
-        }
-    } catch (e: Exception) {
-        null
     }
 
     private fun String.injectHook(): String {
@@ -144,19 +153,6 @@ class LunarTurnstileSolver(
                 window.fetch = function(url, opts) {
                     if (opts && opts.headers) check(opts.headers);
                     return origFetch.apply(this, arguments);
-                };
-                var origOpen = XMLHttpRequest.prototype.open;
-                var origSend = XMLHttpRequest.prototype.send;
-                XMLHttpRequest.prototype.open = function(method, url) {
-                    this.__lunarUrl = url;
-                    return origOpen.apply(this, arguments);
-                };
-                XMLHttpRequest.prototype.send = function() {
-                    try {
-                        var token = this.getRequestHeader('catch-me-if-you-can-monkey');
-                        if (token) check({'catch-me-if-you-can-monkey': token});
-                    } catch (e) {}
-                    return origSend.apply(this, arguments);
                 };
             })();
         """
