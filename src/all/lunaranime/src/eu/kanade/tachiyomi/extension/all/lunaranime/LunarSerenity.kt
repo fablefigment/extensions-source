@@ -82,9 +82,7 @@ class LunarSerenity(
         response
     }
 
-    private fun okhttp3.Request.withProof(): okhttp3.Request {
-        return newBuilder().header(PROOF_HEADER, proof(method, url)).build()
-    }
+    private fun okhttp3.Request.withProof(): okhttp3.Request = newBuilder().header(PROOF_HEADER, proof(method, url)).build()
 
     private fun sha256(bytes: ByteArray): ByteArray = MessageDigest.getInstance("SHA-256").digest(bytes)
 
