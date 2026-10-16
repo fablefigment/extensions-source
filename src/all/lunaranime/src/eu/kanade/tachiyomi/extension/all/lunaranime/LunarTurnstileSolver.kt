@@ -28,7 +28,7 @@ class LunarTurnstileSolver(
                 return it
             }
         }
-        val token = solve()
+        val token = solve()?.takeIf { it.isNotBlank() }?.let { "1.$it" }
         if (token != null) {
             cachedToken = token
             tokenTime = System.currentTimeMillis()
@@ -48,6 +48,8 @@ class LunarTurnstileSolver(
                     cachedWv = WebView(applicationContext).apply {
                         settings.javaScriptEnabled = true
                         settings.domStorageEnabled = true
+                        settings.userAgentString =
+                            "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Mobile Safari/537.36"
                     }
                 }
                 val webView = cachedWv!!
