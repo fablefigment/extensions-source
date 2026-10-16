@@ -41,11 +41,11 @@ abstract class LunarAnime : KeiSource(), ConfigurableSource {
 
     private fun manualToken(): String? {
         val prefs = applicationContext.getSharedPreferences("lunar_serenity", Context.MODE_PRIVATE)
-        // Also check the source-specific prefs (set via UI)
         val uiPrefs = applicationContext.getSharedPreferences("source_$id", Context.MODE_PRIVATE)
-        return uiPrefs.getString(MANUAL_TOKEN_KEY, null)
+        val token = uiPrefs.getString(MANUAL_TOKEN_KEY, null)
             ?: prefs.getString(MANUAL_TOKEN_KEY, null)
-    }?.takeIf { it.isNotBlank() }
+        return token?.takeIf { it.isNotBlank() }
+    }
 
     companion object {
         const val MANUAL_TOKEN_KEY = "lunar_manual_turnstile_token"
