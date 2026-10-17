@@ -1,6 +1,8 @@
 // Chapter list through the site's own chapters API method, newest uploads first, up to a page with a known chapter;
 // pages past a failure are left out
 (knownIds, mangaId, chapterPath, maxPages, pass, reject) => {
+    const log = (msg) => console.log('[COMIX-CL] ' + msg);
+    log('init mangaId=' + mangaId);
     const known = new Set(knownIds);
     const chapters = [];
     const isChapter = (item) => item &&
@@ -65,23 +67,30 @@
     };
 
     const requestPage = async (target) => {
+        log('requestPage target=' + target);
         let error = `Chapter page ${target} never arrived`;
         try {
             chaptersApi = chaptersApi || await findChaptersApi();
+            log('chaptersApi found=' + !!chaptersApi);
             if (!chaptersApi) {
                 finish(false, "Could not find the site's chapters API");
                 return;
             }
+            log('calling chaptersApi...');
             const result = await Promise.race([
                 chaptersApi({ page: target, limit: 20, order: { created_at: "desc" } }),
                 new Promise((resolve, timeout) => setTimeout(() => timeout(new Error("timed out")), PAGE_TIMEOUT_MS)),
             ]);
+            log('result keys=' + (result ? Object.keys(result).join(',') : 'null'));
             const items = result && (result.items || (result.result && result.result.items));
             const meta = result && (result.meta || (result.result && result.result.meta));
+            log('items isArray=' + Array.isArray(items) + ' len=' + (items ? items.length : 'n/a'));
             if (!Array.isArray(items) || !items.every(isChapter)) {
+                log('items validation failed');
                 finish(false, `Chapter page ${target} came back in a shape the extension doesn't recognise`);
                 return;
             }
+            log('items valid, pushing ' + items.length);
             chapters.push(...items);
             if (items.some((item) => known.has(item.id))) {
                 finish(true);
