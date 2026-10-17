@@ -1,11 +1,7 @@
 package eu.kanade.tachiyomi.extension.all.lunaranime
 
 import android.content.Context
-import android.util.Log
-import androidx.preference.EditTextPreference
-import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.source.ConfigurableSource
 import eu.kanade.tachiyomi.source.model.Filter
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
@@ -29,26 +25,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 
 @Source
-abstract class LunarAnime :
-    KeiSource(),
-    ConfigurableSource {
-
-    override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        EditTextPreference(screen.context).apply {
-            key = MANUAL_TOKEN_KEY
-            title = "Manual Turnstile token (debug)"
-            summary = "Paste a fresh Catch-Me-If-You-Can-Monkey value to validate the keypair once."
-            setDefaultValue("")
-        }.also(screen::addPreference)
-    }
-
-    private fun manualToken(): String? {
-        val prefs = applicationContext.getSharedPreferences("lunar_serenity", Context.MODE_PRIVATE)
-        val uiPrefs = applicationContext.getSharedPreferences("source_$id", Context.MODE_PRIVATE)
-        val token = uiPrefs.getString(MANUAL_TOKEN_KEY, null)
-            ?: prefs.getString(MANUAL_TOKEN_KEY, null)
-        return token?.takeIf { it.isNotBlank() }
-    }
+abstract class LunarAnime : KeiSource() {
 
     private val internalLang: String = when (lang) {
         "pt-BR" -> "pt-br"
@@ -61,11 +38,6 @@ abstract class LunarAnime :
     private val serenity by lazy { LunarSerenity(API_URL) }
     private val turnstileSolver by lazy { LunarTurnstileSolver(baseUrl) }
 
-    // The server only wants a Turnstile token the first time it sees a DPoP key: the browser
-    // sends one, then later requests signed with the same key succeed without it. Without a
-    // verified key it silently returns decoy images, so track which key has been verified.
-    // Persisted so app restarts don't trigger re-verification; decoy detection is the
-    // ground truth that clears it.
     @Volatile
     private var verifiedThumbprint: String? = null
 
@@ -119,12 +91,9 @@ abstract class LunarAnime :
             } else if (request.url.encodedPath.contains("/api/manga/r/")) {
                 val builder = request.newBuilder()
                 if (!isKeyVerified()) {
-                    val token = manualToken() ?: turnstileSolver.getToken()
-                    if (token != null) {
+                    turnstileSolver.getToken()?.let { token ->
                         builder.header("Catch-Me-If-You-Can-Monkey", token)
                             .header("Which-Monkey", "turnstile")
-                    } else {
-                        Log.w(TAG, "No Turnstile token available, the server will answer with decoy images")
                     }
                 }
                 chain.proceed(builder.build())
@@ -293,10 +262,7 @@ abstract class LunarAnime :
 
         var images = fetchImages(seeds, slug, chapterNumber, language)
 
-        // A key the server doesn't trust gets decoys instead of an error. If that happens,
-        // forget the verified state so the next request carries a fresh Turnstile token.
         if (images.areDecoys()) {
-            Log.w(TAG, "Got decoy images, retrying with a fresh Turnstile token")
             markKeyUnverified()
             images = fetchImages(seeds, slug, chapterNumber, language)
         }
@@ -330,7 +296,6 @@ abstract class LunarAnime :
             .parseAs<LunarPageListDecrypted>().data.images
     }
 
-    /** Untrusted keys are served `https://api.lunarx.to/api/cdn/p/<id>.png` instead of the real vault URLs. */
     private fun List<String>.areDecoys(): Boolean = isEmpty() || any { it.contains(DECOY_PATH) }
 
     override fun imageRequest(page: Page): Request {
@@ -364,16 +329,11 @@ abstract class LunarAnime :
     }
 
     companion object {
-        private const val TAG = "LunarManga"
         private const val API_URL = "https://api.lunarx.to"
         private const val CDN_URL = "https://vault.lunarx.to"
-        const val MANUAL_TOKEN_KEY = "lunar_manual_turnstile_token"
         private const val DECOY_PATH = "/api/cdn/p/"
         private const val KEY_VERIFIED_THUMBPRINT = "verified_thumbprint"
         private const val KEY_VERIFIED_AT = "verified_at"
-
-        // Server-side trust lasts much longer; decoy detection is the ground truth that
-        // clears the verified state, so this is just a safety net.
         private const val VERIFIED_TTL_MS = 7 * 24 * 60 * 60 * 1000L
     }
 }
