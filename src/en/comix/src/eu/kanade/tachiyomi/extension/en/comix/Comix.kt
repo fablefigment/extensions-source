@@ -756,6 +756,25 @@ abstract class Comix :
                     }
                     return element;
                 };
+                // The site's burst detector flags chapter-list paging when no trusted click/keydown has fired; capture its listener and keep its timer fresh
+                const burstResetListeners = [];
+                function resetBurstCounter() {
+                    const fakeTrustedEvent = { isTrusted: true };
+                    for (const listener of burstResetListeners) {
+                        try {
+                            if (String(listener).indexOf("isTrusted") !== -1) listener.call(document, fakeTrustedEvent);
+                        } catch (_) {}
+                    }
+                }
+                const originalAddEventListener = EventTarget.prototype.addEventListener;
+                EventTarget.prototype.addEventListener = function (type, listener, options) {
+                    if (this === document && (type === "click" || type === "keydown")) {
+                        burstResetListeners.push(listener);
+                        resetBurstCounter();
+                    }
+                    return originalAddEventListener.call(this, type, listener, options);
+                };
+                setInterval(resetBurstCounter, 1000);
                 ${pageScript(passPayloadName, rejectName)}
             """.trimIndent()
             val html = document.clone().apply {
