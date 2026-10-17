@@ -41,18 +41,25 @@
     };
 
     // Site's manga API object, matched to the route table by its keys, from the chunks next to the running entry
-    const findChaptersApi = async () => {
-        const scripts = performance.getEntriesByType("resource")
-            .map((entry) => entry.name)
-            .filter((url) => /\/assets\/.*\.js$/.test(url));
-        const entry = scripts.find((url) => /\/main-[^/]+\.js$/.test(url));
-        if (!entry) return null;
-        const directory = entry.slice(0, entry.lastIndexOf("/") + 1);
-        const exports = [];
-        for (const url of new Set(scripts.filter((url) => url.startsWith(directory)))) {
-            exports.push(...Object.values(await import(url)));
-            const api = matchChaptersApi(exports);
-            if (api) return api;
+    // Retries because the script may run before the site's bundle finishes loading
+    const findChaptersApi = async (attempts = 10) => {
+        for (let i = 0; i < attempts; i++) {
+            const scripts = performance.getEntriesByType("resource")
+                .map((entry) => entry.name)
+                .filter((url) => /\/assets\/.*\.js$/.test(url));
+            const entry = scripts.find((url) => /\/main-[^/]+\.js$/.test(url));
+            if (entry) {
+                const directory = entry.slice(0, entry.lastIndexOf("/") + 1);
+                const exports = [];
+                for (const url of new Set(scripts.filter((url) => url.startsWith(directory)))) {
+                    try {
+                        exports.push(...Object.values(await import(url)));
+                    } catch (e) {}
+                    const api = matchChaptersApi(exports);
+                    if (api) return api;
+                }
+            }
+            await new Promise((r) => setTimeout(r, 500));
         }
         return null;
     };
