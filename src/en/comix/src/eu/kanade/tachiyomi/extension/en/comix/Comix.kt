@@ -736,6 +736,26 @@ abstract class Comix :
                     if (name.toLowerCase() === "x-rt" && value === "1") value = "0";
                     return originalSetRequestHeader.call(this, name, value);
                 };
+                // The site's fingerprint reads Reflect from a detached iframe's contentWindow, which is null in this WebView and yields a blocklisted fingerprint value; provide a window-like stand-in
+                const originalCreateElement = Document.prototype.createElement;
+                Document.prototype.createElement = function (tagName, options) {
+                    const element = originalCreateElement.call(this, tagName, options);
+                    if (String(tagName).toLowerCase() === "iframe" && !element.contentWindow) {
+                        try {
+                            Object.defineProperty(element, "contentWindow", {
+                                value: new Proxy({ Reflect: window.Reflect }, {
+                                    get(target, prop) {
+                                        if (prop in target) return target[prop];
+                                        const value = window[prop];
+                                        return typeof value === "function" ? value.bind(window) : value;
+                                    }
+                                }),
+                                configurable: true
+                            });
+                        } catch (_) {}
+                    }
+                    return element;
+                };
                 ${pageScript(passPayloadName, rejectName)}
             """.trimIndent()
             val html = document.clone().apply {
