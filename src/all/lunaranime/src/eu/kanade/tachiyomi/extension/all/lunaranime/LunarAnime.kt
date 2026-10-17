@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.extension.all.lunaranime
 
 import android.content.Context
+import android.util.Log
 import androidx.preference.EditTextPreference
 import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.network.GET
@@ -60,6 +61,27 @@ abstract class LunarAnime :
     private val serenity by lazy { LunarSerenity(API_URL) }
     private val turnstileSolver by lazy { LunarTurnstileSolver(baseUrl) }
 
+    // The server only wants a Turnstile token the first time it sees a DPoP key: the browser
+    // sends one, then later requests signed with the same key succeed without it. Without a
+    // verified key it silently returns decoy images, so track which key has been verified.
+    @Volatile
+    private var verifiedThumbprint: String? = null
+
+    @Volatile
+    private var verifiedAt = 0L
+
+    private fun isKeyVerified(): Boolean = verifiedThumbprint == serenity.thumbprint &&
+        System.currentTimeMillis() - verifiedAt < VERIFIED_TTL_MS
+
+    private fun markKeyVerified() {
+        verifiedThumbprint = serenity.thumbprint
+        verifiedAt = System.currentTimeMillis()
+    }
+
+    private fun markKeyUnverified() {
+        verifiedThumbprint = null
+    }
+
     override fun OkHttpClient.Builder.configureClient() = this
         .addInterceptor(serenity.interceptor())
         .addInterceptor { chain ->
@@ -72,10 +94,14 @@ abstract class LunarAnime :
                 chain.proceed(newRequest)
             } else if (request.url.encodedPath.contains("/api/manga/r/")) {
                 val builder = request.newBuilder()
-                val token = manualToken() ?: turnstileSolver.getToken()
-                token?.let {
-                    builder.header("Catch-Me-If-You-Can-Monkey", it)
-                        .header("Which-Monkey", "turnstile")
+                if (!isKeyVerified()) {
+                    val token = manualToken() ?: turnstileSolver.getToken()
+                    if (token != null) {
+                        builder.header("Catch-Me-If-You-Can-Monkey", token)
+                            .header("Which-Monkey", "turnstile")
+                    } else {
+                        Log.w(TAG, "No Turnstile token available, the server will answer with decoy images")
+                    }
                 }
                 chain.proceed(builder.build())
             } else {
@@ -239,10 +265,34 @@ abstract class LunarAnime :
         turnstileSolver.harvestUrl = chapterUrl.toString()
 
         val seeds = crypto.extractSeeds(client.get(chapterUrl).asJsoup())
-        val minted = crypto.mint(seeds, slug, chapterNumber)
 
         // Required requests or fake images are returned
         viewChapter(slug, chapterNumber, language)
+
+        var images = fetchImages(seeds, slug, chapterNumber, language)
+
+        // A key the server doesn't trust gets decoys instead of an error. If that happens,
+        // forget the verified state so the next request carries a fresh Turnstile token.
+        if (images.areDecoys()) {
+            Log.w(TAG, "Got decoy images, retrying with a fresh Turnstile token")
+            markKeyUnverified()
+            images = fetchImages(seeds, slug, chapterNumber, language)
+        }
+
+        if (images.areDecoys()) {
+            markKeyUnverified()
+            error("The site returned placeholder images. Turnstile verification failed; open the source in WebView and try again.")
+        }
+
+        markKeyVerified()
+
+        return images.mapIndexed { index, imageUrl ->
+            Page(index, chapter.url, imageUrl)
+        }
+    }
+
+    private suspend fun fetchImages(seeds: LunarSeeds, slug: String, chapterNumber: String, language: String): List<String> {
+        val minted = crypto.mint(seeds, slug, chapterNumber)
 
         val url = API_URL.toHttpUrl().newBuilder()
             .addPathSegments("api/manga/r")
@@ -254,13 +304,12 @@ abstract class LunarAnime :
             .data?.sessionData
             ?: error("session_data is empty")
 
-        val images = crypto.unpack(sessionData, seeds, minted.nonce)
+        return crypto.unpack(sessionData, seeds, minted.nonce)
             .parseAs<LunarPageListDecrypted>().data.images
-
-        return images.mapIndexed { index, imageUrl ->
-            Page(index, chapter.url, imageUrl)
-        }
     }
+
+    /** Untrusted keys are served `https://api.lunarx.to/api/cdn/p/<id>.png` instead of the real vault URLs. */
+    private fun List<String>.areDecoys(): Boolean = isEmpty() || any { it.contains(DECOY_PATH) }
 
     override fun imageRequest(page: Page): Request {
         val imageHeaders = headersBuilder()
@@ -297,5 +346,9 @@ abstract class LunarAnime :
         private const val API_URL = "https://api.lunarx.to"
         private const val CDN_URL = "https://vault.lunarx.to"
         const val MANUAL_TOKEN_KEY = "lunar_manual_turnstile_token"
+        private const val DECOY_PATH = "/api/cdn/p/"
+
+        // The captures show a verified key still working ~50s later; stay well under that.
+        private const val VERIFIED_TTL_MS = 40_000L
     }
 }
