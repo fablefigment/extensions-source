@@ -224,17 +224,14 @@ abstract class Comix :
                                 if (parsed && Array.isArray(parsed.items)) {
                                     parsed = { result: parsed };
                                 }
-                                if (
-                                    parsed &&
-                                    parsed.result &&
-                                    Array.isArray(parsed.result.items) &&
-                                    (allowEmpty || parsed.result.items.length > 0)
-                                ) {
+                                const ok = parsed && parsed.result && Array.isArray(parsed.result.items) && (allowEmpty || parsed.result.items.length > 0);
+                                if (ok) {
                                     window[payloadKey] = JSON.stringify(parsed);
                                     window.$passPayloadName(window[payloadKey]);
                                     return true;
                                 }
-                            } catch (e) {}
+                            } catch (e) {
+                            }
                             return false;
                         };
 
@@ -253,7 +250,8 @@ abstract class Comix :
                         const captureText = text => {
                             try {
                                 if (text) capture(JSON.parse(text), true);
-                            } catch (e) {}
+                            } catch (e) {
+                            }
                         };
 
                         const shouldCaptureUrl = rawUrl => {
@@ -715,9 +713,22 @@ abstract class Comix :
             jsBridge(errorBridgeName) { reject(Exception(it)) }
 
             val captureScript = buildScript?.invoke(passPayloadName)
+            val bridgeScript = """
+                window.$passPayloadName = payload => window.$bridgeName.post(payload);
+                window.$rejectName = message => window.$errorBridgeName.post(message);
+            """.trimIndent()
             if (captureScript != null) {
-                onPageStarted { evaluateJs(captureScript) }
-                onPageFinished { evaluateJs(captureScript) }
+                onPageStarted {
+                    evaluateJs(bridgeScript)
+                    evaluateJs(captureScript)
+                }
+                onPageFinished {
+                    evaluateJs(bridgeScript)
+                    evaluateJs(captureScript)
+                }
+            } else {
+                onPageStarted { evaluateJs(bridgeScript) }
+                onPageFinished { evaluateJs(bridgeScript) }
             }
             poll(SCRIPT_RETRY_INTERVAL_MS.milliseconds) {
                 if (System.nanoTime() >= timeoutDeadline.get()) {
