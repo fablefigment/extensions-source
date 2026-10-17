@@ -64,22 +64,47 @@ abstract class LunarAnime :
     // The server only wants a Turnstile token the first time it sees a DPoP key: the browser
     // sends one, then later requests signed with the same key succeed without it. Without a
     // verified key it silently returns decoy images, so track which key has been verified.
+    // Persisted so app restarts don't trigger re-verification; decoy detection is the
+    // ground truth that clears it.
     @Volatile
     private var verifiedThumbprint: String? = null
 
     @Volatile
     private var verifiedAt = 0L
 
-    private fun isKeyVerified(): Boolean = verifiedThumbprint == serenity.thumbprint &&
-        System.currentTimeMillis() - verifiedAt < VERIFIED_TTL_MS
+    private fun serenityPrefs() =
+        applicationContext.getSharedPreferences("lunar_serenity", Context.MODE_PRIVATE)
+
+    private fun loadVerifiedState() {
+        val prefs = serenityPrefs()
+        verifiedThumbprint = prefs.getString(KEY_VERIFIED_THUMBPRINT, null)
+        verifiedAt = prefs.getLong(KEY_VERIFIED_AT, 0L)
+    }
+
+    private fun isKeyVerified(): Boolean {
+        if (verifiedThumbprint == null && verifiedAt == 0L) {
+            loadVerifiedState()
+        }
+        return verifiedThumbprint == serenity.thumbprint &&
+            System.currentTimeMillis() - verifiedAt < VERIFIED_TTL_MS
+    }
 
     private fun markKeyVerified() {
         verifiedThumbprint = serenity.thumbprint
         verifiedAt = System.currentTimeMillis()
+        serenityPrefs().edit()
+            .putString(KEY_VERIFIED_THUMBPRINT, verifiedThumbprint)
+            .putLong(KEY_VERIFIED_AT, verifiedAt)
+            .apply()
     }
 
     private fun markKeyUnverified() {
         verifiedThumbprint = null
+        verifiedAt = 0L
+        serenityPrefs().edit()
+            .remove(KEY_VERIFIED_THUMBPRINT)
+            .remove(KEY_VERIFIED_AT)
+            .apply()
     }
 
     override fun OkHttpClient.Builder.configureClient() = this
@@ -345,8 +370,11 @@ abstract class LunarAnime :
         private const val CDN_URL = "https://vault.lunarx.to"
         const val MANUAL_TOKEN_KEY = "lunar_manual_turnstile_token"
         private const val DECOY_PATH = "/api/cdn/p/"
+        private const val KEY_VERIFIED_THUMBPRINT = "verified_thumbprint"
+        private const val KEY_VERIFIED_AT = "verified_at"
 
-        // The captures show a verified key still working ~50s later; stay well under that.
-        private const val VERIFIED_TTL_MS = 40_000L
+        // Server-side trust lasts much longer; decoy detection is the ground truth that
+        // clears the verified state, so this is just a safety net.
+        private const val VERIFIED_TTL_MS = 7 * 24 * 60 * 60 * 1000L
     }
 }
