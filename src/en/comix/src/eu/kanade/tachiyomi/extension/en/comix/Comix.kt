@@ -44,6 +44,7 @@ import okio.Buffer
 import org.json.JSONObject
 import org.jsoup.nodes.Document
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.time.Duration
@@ -666,6 +667,7 @@ abstract class Comix :
         val waitSeconds = if (isDataRequest != null) DATA_REQUEST_WAIT_SECONDS else WEBVIEW_TIMEOUT_SECONDS
         val timeoutDeadline = AtomicLong(System.nanoTime() + waitSeconds.seconds.inWholeNanoseconds)
         val dataRequests = AtomicInteger()
+        val cfChallengeExtended = AtomicBoolean(false)
         val (bridgeName, errorBridgeName, passPayloadName, rejectName) = List(4) {
             (1..(10..20).random())
                 .map { (('a'..'z') + ('A'..'Z')).random() }
@@ -694,6 +696,9 @@ abstract class Comix :
                 if (isData) dataRequests.incrementAndGet()
                 if (requestUrl.isChapterListRequest()) chapterListPacer.waitForSlot()
                 if (isData || requestUrl.encodedPath.startsWith(WAF_PATH)) {
+                    timeoutDeadline.set(System.nanoTime() + waitSeconds.seconds.inWholeNanoseconds)
+                }
+                if (requestUrl.encodedPath.startsWith("/cdn-cgi/challenge-platform/") && cfChallengeExtended.compareAndSet(false, true)) {
                     timeoutDeadline.set(System.nanoTime() + waitSeconds.seconds.inWholeNanoseconds)
                 }
                 val allowed = requestUrl.host == baseUrlHost ||
