@@ -249,7 +249,7 @@ abstract class LunarAnime : KeiSource() {
         }
 
         if (result.needsRevalidation()) {
-            error("The site returned placeholder images even after solving Turnstile. Open the title in WebView and retry.")
+            error("Could not load images. Open in WebView and try again.")
         }
 
         markCleared(slug, result.cacheTtl)
