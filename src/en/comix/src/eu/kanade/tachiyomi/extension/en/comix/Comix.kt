@@ -184,6 +184,24 @@ abstract class Comix :
     }
 
     private suspend fun getMangaListFromBrowse(url: HttpUrl): MangasPage {
+        runCatching {
+            val apiUrl = baseUrl.toHttpUrl().newBuilder().apply {
+                addPathSegment("api")
+                addPathSegment("v1")
+                addPathSegment("manga")
+                for (i in 0 until url.querySize) {
+                    addQueryParameter(url.queryParameterName(i), url.queryParameterValue(i))
+                }
+                addQueryParameter("limit", "28")
+            }.build()
+            val apiResponse = client.get(apiUrl).parseAs<SearchResponse>()
+            if (apiResponse.result.items.isNotEmpty()) {
+                val mangaList = apiResponse.result.items.map {
+                    it.toBasicSManga(preferences.posterQuality())
+                }
+                return MangasPage(mangaList, apiResponse.result.hasNextPage())
+            }
+        }
         val document = client.get(url).asJsoup()
         val contentRating = url.queryParameter("content_rating")
             ?: preferences.contentRating()
