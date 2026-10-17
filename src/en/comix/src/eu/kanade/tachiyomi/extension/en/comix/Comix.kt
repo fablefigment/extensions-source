@@ -693,7 +693,7 @@ abstract class Comix :
                 val isData = isDataRequest?.invoke(requestUrl) == true
                 if (isData) dataRequests.incrementAndGet()
                 if (requestUrl.isChapterListRequest()) chapterListPacer.waitForSlot()
-                if (isData || requestUrl.encodedPath.startsWith(WAF_PATH) || requestUrl.host == "challenges.cloudflare.com") {
+                if (isData || requestUrl.encodedPath.startsWith(WAF_PATH)) {
                     timeoutDeadline.set(System.nanoTime() + waitSeconds.seconds.inWholeNanoseconds)
                 }
                 val allowed = requestUrl.host == baseUrlHost ||
