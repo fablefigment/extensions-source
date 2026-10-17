@@ -65,28 +65,42 @@
                 finish(false, "Could not find the site's chapters API");
                 return;
             }
-            expecting = true;
             const result = await Promise.race([
                 chaptersApi({ page: target, limit: 20, order: { created_at: "desc" } }),
                 new Promise((resolve, timeout) => setTimeout(() => timeout(new Error("timed out")), PAGE_TIMEOUT_MS)),
             ]);
-            const arrays = Array.isArray(result) ? [result] : Object.values(result || {}).filter(Array.isArray);
-            returnedNumbers = arrays.map((returned) => ({
-                count: returned.length,
-                values: new Set(returned.flatMap((item) => Object.values(item || {}).filter((value) => typeof value === "number"))),
-            }));
-            error = `Chapter page ${target} came back in a shape the extension doesn't recognise`;
+            const items = result && (result.items || (result.result && result.result.items));
+            const meta = result && (result.meta || (result.result && result.result.meta));
+            if (!Array.isArray(items) || !items.every(isChapter)) {
+                finish(false, `Chapter page ${target} came back in a shape the extension doesn't recognise`);
+                return;
+            }
+            chapters.push(...items);
+            if (items.some((item) => known.has(item.id))) {
+                finish(true);
+                return;
+            }
+            const hasNext = meta && (meta.hasNext || (typeof meta.page === "number" && typeof meta.lastPage === "number" && meta.page < meta.lastPage));
+            const lastPage = meta && typeof meta.lastPage === "number" ? meta.lastPage : target;
+            if (!hasNext || target >= Math.min(lastPage, maxPages)) {
+                finish(true);
+                return;
+            }
+            page = target + 1;
+            requestPage(page);
+            return;
         } catch (e) {
             const status = e && e.response && e.response.status;
             error = status === 502
                 ? `Comix blocked chapter page ${target} (HTTP 502). Try again later, or change the user agent in Advanced settings`
                 : `Chapter page ${target} failed: ${status ? `HTTP ${status}` : e && e.message || e}`;
         }
-        // Captured pages are handed over on a 0 ms timer, before this one
-        setTimeout(() => {
-            if (!done && page === target) finish(false, error);
-        }, 1000);
+        if (!done) finish(false, error);
     };
+
+    // Kick off the first page directly; the holder pattern is kept for compatibility
+    // but the API result is processed directly since Vue 3 Proxy bypasses Object.prototype hooks
+    requestPage(page);
 
     return (holder) => {
         const items = holder.items;
@@ -104,15 +118,10 @@
         }
         if (!siteLoaded) {
             siteLoaded = true;
-            requestPage(page);
             return;
         }
-        if (!expecting || meta.page !== page) return;
-        if (!(returnedNumbers && returnedNumbers.some((returned) => returned.count === items.length &&
-            items.every((item) => returned.values.has(item.id))))) return;
-        expecting = false;
-        returnedNumbers = null;
-        chapters.push(...items);
+        if (meta.page !== page) return;
+        chapters.push(...items.filter((item) => !chapters.some((c) => c.id === item.id)));
         if (items.some((item) => known.has(item.id))) {
             finish(true);
             return;
