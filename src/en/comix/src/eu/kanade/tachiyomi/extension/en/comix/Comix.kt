@@ -801,6 +801,9 @@ abstract class Comix :
                 ${pageScript(passPayloadName, rejectName)}
             """.trimIndent()
             val html = document.clone().apply {
+                if (captureScript != null) {
+                    head().prependElement("script").append(captureScript)
+                }
                 head().prependElement("script").append(bootstrapScript)
             }.outerHtml()
             loadData(document.location(), html)
