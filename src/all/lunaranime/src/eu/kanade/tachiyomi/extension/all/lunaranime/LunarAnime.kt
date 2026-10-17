@@ -262,8 +262,6 @@ abstract class LunarAnime :
         val language = chapterUrl.queryParameter("lang") ?: "en"
         val (slug, chapterNumber) = chapterUrl.pathSegments.takeLast(2)
 
-        turnstileSolver.harvestUrl = chapterUrl.toString()
-
         val seeds = crypto.extractSeeds(client.get(chapterUrl).asJsoup())
 
         // Required requests or fake images are returned
