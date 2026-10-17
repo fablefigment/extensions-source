@@ -72,10 +72,6 @@ class LunarTurnstileSolver(
         @JavascriptInterface
         fun onWidgetError(code: String?) {
         }
-
-        @JavascriptInterface
-        fun log(message: String?) {
-        }
     }
 
     private fun widgetHtml() = """
@@ -85,13 +81,11 @@ class LunarTurnstileSolver(
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <script>
         function onTurnstileLoaded() {
-            $BRIDGE_NAME.log('api.js loaded');
             turnstile.render('#widget', {
                 sitekey: '$SITEKEY',
                 theme: 'dark',
                 callback: function (token) { $BRIDGE_NAME.onToken(token); },
-                'error-callback': function (code) { $BRIDGE_NAME.onWidgetError(String(code)); },
-                'before-interactive-callback': function () { $BRIDGE_NAME.log('interactive challenge requested'); }
+                'error-callback': function (code) { $BRIDGE_NAME.onWidgetError(String(code)); }
             });
         }
         </script>
