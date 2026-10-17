@@ -49,20 +49,34 @@
             const scripts = performance.getEntriesByType("resource")
                 .map((entry) => entry.name)
                 .filter((url) => /\/assets\/.*\.js$/.test(url));
+            log('findChaptersApi attempt ' + (i+1) + ' scripts=' + scripts.length);
             const entry = scripts.find((url) => /\/main-[^/]+\.js$/.test(url));
             if (entry) {
+                log('main entry=' + entry);
                 const directory = entry.slice(0, entry.lastIndexOf("/") + 1);
                 const exports = [];
                 for (const url of new Set(scripts.filter((url) => url.startsWith(directory)))) {
+                    log('trying import ' + url);
                     try {
-                        exports.push(...Object.values(await import(url)));
-                    } catch (e) {}
+                        const mod = await Promise.race([
+                            import(url),
+                            new Promise((_, rej) => setTimeout(() => rej(new Error('import timeout')), 3000)),
+                        ]);
+                        exports.push(...Object.values(mod));
+                        log('import ok ' + url);
+                    } catch (e) {
+                        log('import fail ' + url + ': ' + (e && e.message));
+                    }
                     const api = matchChaptersApi(exports);
-                    if (api) return api;
+                    if (api) {
+                        log('API found!');
+                        return api;
+                    }
                 }
             }
             await new Promise((r) => setTimeout(r, 500));
         }
+        log('findChaptersApi exhausted');
         return null;
     };
 
