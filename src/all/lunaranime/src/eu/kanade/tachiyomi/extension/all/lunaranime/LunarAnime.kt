@@ -72,8 +72,7 @@ abstract class LunarAnime :
     @Volatile
     private var verifiedAt = 0L
 
-    private fun serenityPrefs() =
-        applicationContext.getSharedPreferences("lunar_serenity", Context.MODE_PRIVATE)
+    private fun serenityPrefs() = applicationContext.getSharedPreferences("lunar_serenity", Context.MODE_PRIVATE)
 
     private fun loadVerifiedState() {
         val prefs = serenityPrefs()
