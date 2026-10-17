@@ -4,7 +4,10 @@
     const looksLikeApiItems = (value) => Array.isArray(value) && value.length > 0 &&
         value.some((item) => item && typeof item === "object" && typeof item.id === "number");
     const capture = (holder, value) => {
-        if (looksLikeApiItems(value)) setTimeout(() => handle(holder));
+        if (looksLikeApiItems(value)) {
+            console.log('[COMIX-CAP] capturing items len=' + value.length + ' firstKeys=' + Object.keys(value[0] || {}).join(','));
+            setTimeout(() => handle(holder));
+        }
     };
     defineProperty(Object.prototype, "items", {
         configurable: true,
