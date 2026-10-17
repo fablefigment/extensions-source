@@ -1,7 +1,9 @@
 // Decoded API responses from the site's decoder
 (handle) => {
     const defineProperty = Object.defineProperty;
-    const capture = (holder) => setTimeout(() => handle(holder));
+    const capture = (holder) => {
+        if (holder && holder.meta) setTimeout(() => handle(holder));
+    };
     defineProperty(Object.prototype, "items", {
         configurable: true,
         set(value) {

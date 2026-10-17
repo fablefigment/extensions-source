@@ -548,7 +548,7 @@ abstract class Comix :
     ): ChapterList {
         val mangaId = manga.url.removePrefix("/").substringBefore('-')
         val payload = runInWebView(document, { it.isChapterListRequest() }) { passPayloadName, rejectName ->
-            "((${asset("chapter_list.js")})(" +
+            "(${asset("capture_items.js")})((${asset("chapter_list.js")})(" +
                 "${knownIds.joinToString(",", "[", "]")}, ${JSONObject.quote(mangaId)}, ${JSONObject.quote("/title/$mangaId-")}, " +
                 "$MAX_CHAPTER_PAGES, window.$passPayloadName, window.$rejectName));"
         }
